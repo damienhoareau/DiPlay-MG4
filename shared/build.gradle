@@ -1,6 +1,8 @@
 plugins {
     id 'com.android.library'
 }
+
+def prebuiltJniDir = System.getenv('DIPLAY_PREBUILT_JNI_DIR')
 android {
     namespace = 'com.shilapi.xcertplay.shared'
     compileSdk = 37
@@ -13,19 +15,25 @@ android {
             abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64'
         }
 
-        externalNativeBuild {
-            ndkBuild {
-                arguments 'APP_PLATFORM=android-28'
+        if (prebuiltJniDir == null) {
+            externalNativeBuild {
+                ndkBuild {
+                    arguments 'APP_PLATFORM=android-28'
+                }
             }
         }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     ndkVersion = '28.2.13676358'
-    externalNativeBuild {
-        ndkBuild {
-            path = file('src/main/jni/Android.mk')
+    if (prebuiltJniDir == null) {
+        externalNativeBuild {
+            ndkBuild {
+                path = file('src/main/jni/Android.mk')
+            }
         }
+    } else {
+        sourceSets.main.jniLibs.srcDir(prebuiltJniDir)
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11

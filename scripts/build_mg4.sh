@@ -11,7 +11,13 @@ SIGNED="$ROOT/mobile/build/outputs/apk/debug/DiPlay-MG4-SWI69.apk"
 : "${DIPLAY_AUTH_ASSETS_DIR:?Set DIPLAY_AUTH_ASSETS_DIR to the directory containing offline-mfi/}"
 
 cd "$ROOT"
-DIPLAY_AUTH_ASSETS_DIR="$DIPLAY_AUTH_ASSETS_DIR" ./gradlew :mobile:assembleStandaloneDebug
+if [ -n "${DIPLAY_PREBUILT_JNI_DIR:-}" ]; then
+  DIPLAY_AUTH_ASSETS_DIR="$DIPLAY_AUTH_ASSETS_DIR" \
+  DIPLAY_PREBUILT_JNI_DIR="$DIPLAY_PREBUILT_JNI_DIR" \
+  ./gradlew :mobile:assembleStandaloneDebug
+else
+  DIPLAY_AUTH_ASSETS_DIR="$DIPLAY_AUTH_ASSETS_DIR" ./gradlew :mobile:assembleStandaloneDebug
+fi
 "$BT/zipalign" -f 4 "$OUT" "$ALIGNED"
 "$BT/apksigner" sign \
   --key "$KEYS/platform.pk8" \
