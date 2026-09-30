@@ -1794,11 +1794,11 @@ class CarPlayController(
             bluetoothSocket = secure
             connectBluetoothSocket(secure, device.address)
             return secure
-        } catch (secureFailure: Exception) {
+        } catch (secureFailure: Throwable) {
             runCatching { secure?.close() }
             bluetoothSocket = null
             debugLog(
-                "wireless secure RFCOMM failed (${secureFailure.message}); " +
+                "wireless secure RFCOMM failed (${secureFailure.javaClass.name}: ${secureFailure.message}); " +
                     "retrying insecure RFCOMM",
             )
             var insecure: BluetoothSocket? = null
@@ -1807,12 +1807,13 @@ class CarPlayController(
                 bluetoothSocket = insecure
                 connectBluetoothSocket(insecure, device.address)
                 return insecure
-            } catch (insecureFailure: Exception) {
+            } catch (insecureFailure: Throwable) {
                 runCatching { insecure?.close() }
                 bluetoothSocket = null
                 insecureFailure.addSuppressed(secureFailure)
                 throw IOException(
-                    "Secure and insecure RFCOMM failed: ${insecureFailure.message}",
+                    "Secure RFCOMM failed [${secureFailure.javaClass.simpleName}: ${secureFailure.message}]; " +
+                        "insecure RFCOMM failed [${insecureFailure.javaClass.simpleName}: ${insecureFailure.message}]",
                     insecureFailure,
                 )
             }
