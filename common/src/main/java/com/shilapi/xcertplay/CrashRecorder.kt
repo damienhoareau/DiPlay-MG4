@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay
 
 import android.content.Context
+import java.io.File
 import java.io.PrintWriter
 import java.io.StringWriter
 import java.text.SimpleDateFormat
@@ -12,6 +13,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 object CrashRecorder {
     private const val PREFS = "diplay_crash_recorder"
     private const val KEY_REPORT = "last_crash"
+    private const val CRASH_FILE = "last-crash.txt"
     private val installed = AtomicBoolean(false)
 
     fun install(context: Context) {
@@ -27,6 +29,11 @@ object CrashRecorder {
                     "Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}\n\n$trace"
                 appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                     .edit().putString(KEY_REPORT, report).commit()
+                // Keep a second, durable copy. The dialog consumes SharedPreferences on launch,
+                // while field diagnostics are commonly exported only after the app restarts.
+                val file = File(File(appContext.filesDir, "logs"), CRASH_FILE)
+                file.parentFile?.mkdirs()
+                file.writeText(report)
             } catch (_: Throwable) {
                 // Never replace the original failure with a recorder failure.
             }
@@ -40,4 +47,10 @@ object CrashRecorder {
         prefs.edit().remove(KEY_REPORT).commit()
         return report
     }
+
+    fun persisted(context: Context): String? = runCatching {
+        File(File(context.filesDir, "logs"), CRASH_FILE)
+            .takeIf { it.isFile }
+            ?.readText()
+    }.getOrNull()
 }

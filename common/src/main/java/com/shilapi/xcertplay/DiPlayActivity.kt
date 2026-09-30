@@ -1046,6 +1046,13 @@ class DiPlayActivity : ComponentActivity() {
                     appendLine("--- Last display negotiation (timestamps distinguish it from current settings) ---")
                     appendLine(DisplayDiagnosticSnapshot.report(appContext))
                     appendLine()
+                    CrashRecorder.persisted(appContext)?.let { crash ->
+                        appendLine("--- Last uncaught crash ---")
+                        crash.lineSequence().forEach { line ->
+                            DiagnosticRedactor.redact(line)?.let { appendLine(it) }
+                        }
+                        appendLine()
+                    }
                     for (name in SessionLogFile.REPORT_NAMES) {
                         val file = File(appContext.filesDir, "logs/$name")
                         if (file.isFile) {
