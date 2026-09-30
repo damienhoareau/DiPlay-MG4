@@ -3,6 +3,7 @@ package com.shilapi.xcertplay.transport
 import android.bluetooth.BluetoothSocket
 import java.io.IOException
 import java.util.ArrayDeque
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.min
 
 /**
@@ -24,13 +25,10 @@ class BluetoothRfcommDuplexStream(
     private var closed = false
     private var socketCloseStarted = false
     private var failure: IOException? = null
+    private val readerStarted = AtomicBoolean(false)
 
     private val reader = Thread(::readLoop, "xcertplay-bluetooth-rfcomm-reader").apply {
         isDaemon = true
-    }
-
-    init {
-        reader.start()
     }
 
     override fun send(data: ByteArray) {
@@ -43,9 +41,13 @@ class BluetoothRfcommDuplexStream(
                 output.write(data)
                 output.flush()
             } catch (io: IOException) {
-                fail(io)
-                throw io
+                val labelled = IOException("RFCOMM write failed: ${io.message}", io)
+                fail(labelled)
+                throw labelled
             }
+            // MT2712 may reject a blocking read before the accessory has written the iAP2
+            // detect marker. Start the reader only after the first bytes are on the wire.
+            startReaderOnce()
         }
     }
 
@@ -53,6 +55,7 @@ class BluetoothRfcommDuplexStream(
         require(maxBytes > 0) { "maxBytes must be positive" }
         require(timeoutMillis >= 0) { "timeoutMillis must not be negative" }
 
+        startReaderOnce()
         val deadlineNanos = deadlineAfter(timeoutMillis)
         synchronized(lock) {
             while (true) {
@@ -146,7 +149,7 @@ class BluetoothRfcommDuplexStream(
                 readFailure = IOException("Bluetooth RFCOMM reader was interrupted", interrupted)
             }
         } catch (io: IOException) {
-            if (!isClosed()) readFailure = io
+            if (!isClosed()) readFailure = IOException("RFCOMM read failed: ${io.message}", io)
         } catch (failure: Throwable) {
             readFailure = IOException("Bluetooth RFCOMM reader failed", failure)
             if (failure is Error) throw failure
@@ -157,6 +160,10 @@ class BluetoothRfcommDuplexStream(
                 fail(closeFailure)
             }
         }
+    }
+
+    private fun startReaderOnce() {
+        if (readerStarted.compareAndSet(false, true)) reader.start()
     }
 
     private fun takePendingLocked(maxBytes: Int): ByteArray? {
