@@ -6,6 +6,15 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class WirelessHostAddressTest {
+    @Test
+    fun `manual Android 9 hotspot prefers reachable IPv4 over link-local IPv6`() {
+        val ipv4 = ip("192.168.43.1")
+        assertEquals(
+            ipv4,
+            wirelessHostAddress(listOf(ip("fe80::1234"), ipv4), 7, preferIpv4 = true),
+        )
+    }
+
     @Test fun manualApPrefersScopedLinkLocalEvenWhenIpv4ComesFirst() {
         val result = wirelessHostAddress(listOf(ip("192.168.43.1"), ip("fe80::1234")), 7) as Inet6Address
         assertTrue(result.isLinkLocalAddress)
