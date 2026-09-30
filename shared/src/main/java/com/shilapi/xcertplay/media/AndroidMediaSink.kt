@@ -711,10 +711,9 @@ private class AudioRenderer(
     private var lastPlaybackHeadFrames: Long? = null
     private var maxWriteMs = 0L
     private var statsWindowStartNs = 0L
-    private var statsLastUnderruns = 0
     private var bytesPerSecond = 0
+    private var trackCapacityFrames = 0
     private val bufferProgress = AudioBufferProgress(if (format.channels >= 2) 4 else 2)
-    private var underrunsAtPlaybackStart = 0
     private var lastPcmWriteNs = 0L
     private var rebufferCount = 0
     private val thread = Thread(::run, "carplay-audio").apply { isDaemon = true }
@@ -766,7 +765,8 @@ private class AudioRenderer(
             }
         } catch (_: InterruptedException) {
             // Worker shut down.
-        } catch (error: Exception) {
+        } catch (error: Throwable) {
+            if (error is VirtualMachineError || error is ThreadDeath) throw error
             if (running) {
                 Log.e(TAG, "audio renderer worker failed", error)
                 report("Audio: renderer failed audioType=${format.audioType} error=${error.javaClass.simpleName}")
@@ -865,7 +865,8 @@ private class AudioRenderer(
         // AudioTrack.getAudioAttributes() is absent from the MG4/SWI69 Android 9 framework.
         // Keep the attributes used to construct the track instead of querying them back.
         trackAttributes = attributes
-        val capacityBytes = built.bufferSizeInFrames * frameBytes
+        val capacityBytes = plan.trackBufferBytes
+        trackCapacityFrames = capacityBytes / frameBytes
         startThresholdBytes = MediaAudioBuffer.startBytesFor(plan.startBytes, capacityBytes, PREBUFFER_WRITE_CHUNK_BYTES)
         report("Audio: ready audioType=${format.audioType} codec=${format.codec} " +
             "rate=${format.sampleRate} channels=${format.channels} " +
@@ -1189,7 +1190,6 @@ private class AudioRenderer(
     }
 
     private fun startPlayback(track: AudioTrack) {
-        underrunsAtPlaybackStart = track.underrunCount
         track.play()
         playbackStarted = true
     }
@@ -1197,7 +1197,7 @@ private class AudioRenderer(
     private fun maintainPlaybackBuffer() {
         val track = track ?: return
         if (bufferProgress.shouldRebuffer(mappedChannel == AudioChannel.MEDIA, playbackStarted,
-                track.underrunCount > underrunsAtPlaybackStart, queue.isEmpty(), track.playbackHeadPosition)) {
+                false, queue.isEmpty(), track.playbackHeadPosition)) {
             // The hardware buffer has actually drained. Pause without flushing or discarding PCM,
             // then use the configured start threshold again when music resumes.
             track.pause()
@@ -1217,7 +1217,6 @@ private class AudioRenderer(
         val now = System.nanoTime()
         if (statsWindowStartNs == 0L) statsWindowStartNs = now
         if (!force && now - statsWindowStartNs < STATS_WINDOW_NS) return
-        val underruns = track?.underrunCount ?: 0
         val lastRx = lastArrivalNs.get()
         val currentTrack = track
         val playbackHeadFrames = currentTrack?.playbackHeadPosition
@@ -1229,12 +1228,11 @@ private class AudioRenderer(
         }
         val queuedFrames = playbackHeadFrames?.let { (totalWrittenFrames - it).coerceAtLeast(0L) }
         val line = "audio stats audioType=${format.audioType} channel=$mappedChannel " +
-            "routeType=${currentTrack?.routedDevice?.type ?: -1} codec=${format.codec} " +
+            "routeType=unknown codec=${format.codec} " +
             "trackState=${currentTrack?.state ?: -1} playState=${currentTrack?.playState ?: -1} " +
-            "sampleRate=${currentTrack?.sampleRate ?: format.sampleRate} " +
-            "trackBufferFrames=${currentTrack?.bufferSizeInFrames ?: -1} " +
+            "sampleRate=${format.sampleRate} trackBufferFrames=$trackCapacityFrames " +
             "rx=${packetsReceived.getAndSet(0)} " +
-            "dropped=${packetsDropped.getAndSet(0)} underruns=+${underruns - statsLastUnderruns} queue=${queue.size} " +
+            "dropped=${packetsDropped.getAndSet(0)} underruns=unavailable queue=${queue.size} " +
             "playing=$playbackStarted maxGapMs=${maxArrivalGapMs.getAndSet(0)} " +
             "sinceRxMs=${if (lastRx == 0L) -1 else (now - lastRx) / 1_000_000L} maxWriteMs=$maxWriteMs " +
             "writtenFrames=$writtenFramesThisWindow totalWrittenFrames=$totalWrittenFrames " +
@@ -1245,7 +1243,6 @@ private class AudioRenderer(
             "decoderDroppedTotal=$inputDropped outputBuffersTotal=$outputBuffers rebuffers=$rebufferCount ended=$force"
         Log.i(STATS_TAG, line)
         report(line)
-        statsLastUnderruns = underruns
         maxWriteMs = 0L
         writtenFramesThisWindow = 0L
         writeErrorsThisWindow = 0
