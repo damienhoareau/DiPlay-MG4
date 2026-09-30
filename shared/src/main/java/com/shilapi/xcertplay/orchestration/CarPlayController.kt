@@ -863,6 +863,7 @@ class CarPlayController(
     }
 
     private fun runWireless(generation: Int) {
+        var bringUpStep = "initialization"
         try {
             debugLog("wireless bring-up generation=$generation starting")
             closeWirelessStack()
@@ -876,6 +877,7 @@ class CarPlayController(
 
             val mfi = mfiSession?.client
                 ?: throw IOException("MFi coprocessor client is unavailable")
+            bringUpStep = "hotspot"
             val hotspotInfo = startWirelessHotspot(generation)
             if (isStaleWirelessRun(generation)) {
                 closeWirelessStack()
@@ -925,6 +927,7 @@ class CarPlayController(
             val adapter = bluetoothAdapter
                 ?: throw IOException("Bluetooth adapter is unavailable")
             if (!adapter.isEnabled) throw IOException("Bluetooth is not enabled")
+            bringUpStep = "bluetooth-selection"
             val device = selectWirelessBluetoothDevice(adapter)
             val hostBluetoothMac = accessoryBluetoothMac(adapter)
             debugLog(
@@ -936,6 +939,7 @@ class CarPlayController(
                 btMac = hostBluetoothMac,
             )
 
+            bringUpStep = "airplay-listener"
             onStatus(CarPlayStatus.AttachingNetwork)
             val service = awaitVpnService()
                 ?: throw IOException("Could not bind the CarPlay AirPlay service")
@@ -984,6 +988,7 @@ class CarPlayController(
                 return
             }
 
+            bringUpStep = "rfcomm"
             onStatus(CarPlayStatus.ConnectingBluetooth)
             debugLog(
                 "wireless RFCOMM connecting address=${device.address} " +
@@ -1088,7 +1093,7 @@ class CarPlayController(
                 debugLog("wireless bring-up failed", error)
                 closeWirelessStack()
                 if (error is Error) throw error
-                fail(error)
+                fail(IOException("$bringUpStep: ${error.message ?: error.javaClass.simpleName}", error))
             }
         }
     }

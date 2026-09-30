@@ -214,9 +214,9 @@ class ManualHotspotManager(
                     LocalHotspotInterface(
                         name = networkInterface.name,
                         hostAddress = address,
-                        hardwareAddress = runCatching { networkInterface.hardwareAddress?.toMacAddressString() }
-                            .getOrNull()?.takeUnless { it == "02:00:00:00:00:00" || it == "00:00:00:00:00:00" }
-                            ?: HotspotInterfaceBssid.read(networkInterface.name),
+                        // MT2712/SWI69 denies SIOCGIFHWADDR even to platform-signed apps.
+                        // The iAP2 endpoint can use DiPlay's persisted device ID instead.
+                        hardwareAddress = null,
                         score = interfaceScore(networkInterface.name, address),
                     )
                 }
@@ -227,14 +227,8 @@ class ManualHotspotManager(
     private fun isUsableInterface(
         networkInterface: NetworkInterface,
         primaryInterface: String?,
-    ): Boolean = try {
-        networkInterface.name != primaryInterface &&
-            !networkInterface.isLoopback &&
-            networkInterface.isUp &&
-            EXCLUDED_INTERFACE_PREFIXES.none { networkInterface.name.startsWith(it) }
-    } catch (_: SocketException) {
-        false
-    }
+    ): Boolean = networkInterface.name != primaryInterface &&
+        EXCLUDED_INTERFACE_PREFIXES.none { networkInterface.name.startsWith(it) }
 
     private fun interfaceScore(name: String, address: InetAddress): Int {
         var score = when {
