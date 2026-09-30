@@ -2133,7 +2133,7 @@ class CarPlayController(
     }
 
     companion object {
-        private const val IAP2_IPHONE_UUID = "00000000-deca-fade-deca-deafdecacaff"
+        private const val IAP2_IPHONE_UUID = "00000000-deca-fade-deca-deafdecacafe"
         private const val HOTSPOT_START_TIMEOUT_MILLIS = 60_000L
         private const val WIFI_P2P_START_TIMEOUT_MILLIS = 20_000L
         private const val PAIR_TIMEOUT_MILLIS = 5 * 60_000L

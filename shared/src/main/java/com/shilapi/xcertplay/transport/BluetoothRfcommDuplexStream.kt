@@ -39,7 +39,6 @@ class BluetoothRfcommDuplexStream(
             }
             try {
                 output.write(data)
-                output.flush()
             } catch (io: IOException) {
                 val labelled = IOException("RFCOMM write failed: ${io.message}", io)
                 fail(labelled)
