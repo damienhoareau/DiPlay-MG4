@@ -57,7 +57,11 @@ internal class AudioFocusCoordinator(
 
     @Synchronized
     fun acquire(track: AudioTrack, channel: AudioChannel, attributes: AudioAttributes) {
-        if (!enabled || manager == null || channel == AudioChannel.NAVIGATION) return
+        // On the MG4 Android 9 image, taking Android audio focus wakes the factory Bluetooth/
+        // AVRCP owner, which immediately pauses the same iPhone after CarPlay audio starts.
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P || !enabled || manager == null ||
+            channel == AudioChannel.NAVIGATION
+        ) return
         active[track] = Entry(channel, attributes)
         refreshRequest()
     }
