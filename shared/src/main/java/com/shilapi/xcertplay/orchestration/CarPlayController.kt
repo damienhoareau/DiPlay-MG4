@@ -1788,25 +1788,27 @@ class CarPlayController(
     /** MG Android 9 rejects authenticated RFCOMM with EACCES on some FICM builds. */
     private fun connectWirelessBluetoothSocket(device: BluetoothDevice): BluetoothSocket {
         val uuid = UUID.fromString(IAP2_IPHONE_UUID)
-        val secure = device.createRfcommSocketToServiceRecord(uuid)
-        bluetoothSocket = secure
+        var secure: BluetoothSocket? = null
         try {
+            secure = device.createRfcommSocketToServiceRecord(uuid)
+            bluetoothSocket = secure
             connectBluetoothSocket(secure, device.address)
             return secure
-        } catch (secureFailure: IOException) {
-            runCatching { secure.close() }
+        } catch (secureFailure: Exception) {
+            runCatching { secure?.close() }
             bluetoothSocket = null
             debugLog(
                 "wireless secure RFCOMM failed (${secureFailure.message}); " +
                     "retrying insecure RFCOMM",
             )
-            val insecure = device.createInsecureRfcommSocketToServiceRecord(uuid)
-            bluetoothSocket = insecure
+            var insecure: BluetoothSocket? = null
             try {
+                insecure = device.createInsecureRfcommSocketToServiceRecord(uuid)
+                bluetoothSocket = insecure
                 connectBluetoothSocket(insecure, device.address)
                 return insecure
-            } catch (insecureFailure: IOException) {
-                runCatching { insecure.close() }
+            } catch (insecureFailure: Exception) {
+                runCatching { insecure?.close() }
                 bluetoothSocket = null
                 insecureFailure.addSuppressed(secureFailure)
                 throw IOException(
