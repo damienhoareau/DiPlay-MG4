@@ -3542,7 +3542,8 @@ class CarPlayHostActivity : ComponentActivity() {
         message.contains("socket", true) || message.contains("RFCOMM", true) -> getString(R.string.your_iphone_isn_t_available_unlock_it_and_check_bluetooth)
         message.contains("unsupported", true) || message.contains("not supported", true) -> getString(R.string.this_head_unit_may_not_support_wireless_carplay_try_a_usb)
         message.contains("denied", true) || message.contains("permission", true) -> getString(R.string.allow_the_connection_permission_to_continue)
-        message.contains("Failed", true) || message.contains("error", true) -> getString(R.string.connection_interrupted_retrying)
+        message.contains("Failed", true) || message.contains("error", true) ->
+            getString(R.string.connection_interrupted_retrying) + "\n" + message
         message.contains("Waiting for iPhone", true) || message.contains("Discovering iPhone", true) -> getString(R.string.connect_your_iphone_with_a_usb_cable)
         message.contains("paired", true) -> getString(R.string.looking_for_your_paired_iphone)
         message.contains("Bluetooth", true) -> getString(R.string.connecting_to_your_iphone)
