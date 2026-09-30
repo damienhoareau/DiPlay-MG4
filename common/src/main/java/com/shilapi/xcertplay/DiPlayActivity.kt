@@ -6,6 +6,8 @@ import android.Manifest
 import android.app.AlertDialog
 import android.bluetooth.BluetoothManager
 import android.content.Context
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
@@ -91,6 +93,7 @@ class DiPlayActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        CrashRecorder.install(this)
         languagePreferenceAtCreate = AppLocale.preference(this)
         com.shilapi.xcertplay.vehicle.VehicleIntegration.onAppOpened(applicationContext)
         WindowCompat.setDecorFitsSystemWindows(window, true)
@@ -106,6 +109,7 @@ class DiPlayActivity : ComponentActivity() {
         pendingCarHotspotSetup = savedInstanceState?.getBoolean("pending_car_hotspot") ?: false
         page = savedInstanceState?.getString("page") ?: intent.getStringExtra("page") ?: "home"
         render()
+        CrashRecorder.consume(this)?.let { showCrashReport(it) }
         handleWirelessRecovery()
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -113,6 +117,26 @@ class DiPlayActivity : ComponentActivity() {
                 else { isEnabled = false; onBackPressedDispatcher.onBackPressed(); isEnabled = true }
             }
         })
+    }
+
+    private fun showCrashReport(report: String) {
+        val message = TextView(this).apply {
+            text = report
+            setTextIsSelectable(true)
+            setTextColor(Color.WHITE)
+            setPadding(32, 24, 32, 24)
+        }
+        val scroll = ScrollView(this).apply { addView(message) }
+        AlertDialog.Builder(this)
+            .setTitle("Önceki çökme raporu")
+            .setView(scroll)
+            .setPositiveButton("Kopyala") { _, _ ->
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("DiPlay crash", report))
+                Toast.makeText(this, "Crash raporu kopyalandı", Toast.LENGTH_LONG).show()
+            }
+            .setNegativeButton("Kapat", null)
+            .show()
     }
 
     override fun onNewIntent(intent: Intent) {

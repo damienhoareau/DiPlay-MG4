@@ -28,14 +28,20 @@ object Mg4Vehicle : VehicleStatusProvider {
     }
 
     fun available(context: Context): Boolean {
-        EVHardware.init(context.applicationContext)
-        return FirmwareInfo.getGeneration() == FirmwareInfo.Gen.SWI69
+        return runCatching { FirmwareInfo.getGeneration() == FirmwareInfo.Gen.SWI69 }
+            .onFailure { Log.e(TAG, "Could not detect MG4 firmware", it) }
+            .getOrDefault(false)
     }
 
     @Synchronized
     fun start(context: Context) {
         app = context.applicationContext
-        EVHardware.init(context.applicationContext)
+        try {
+            EVHardware.init(context.applicationContext)
+        } catch (error: Throwable) {
+            Log.e(TAG, "EVHardware initialization failed; disabling vehicle data", error)
+            return
+        }
         if (started) {
             executor.execute(::poll)
             return
@@ -50,10 +56,20 @@ object Mg4Vehicle : VehicleStatusProvider {
     /** Fail closed: video remains disabled if the gear cannot be read. */
     fun parked(context: Context): Boolean? {
         if (!available(context)) return null
-        return EVHardware.isVehicleInPark()
+        return runCatching { EVHardware.isVehicleInPark() }
+            .onFailure { Log.e(TAG, "Could not read MG4 gear", it) }
+            .getOrNull()
     }
 
     private fun poll() {
+        try {
+            pollSafely()
+        } catch (error: Throwable) {
+            Log.e(TAG, "MG4 telemetry read failed", error)
+        }
+    }
+
+    private fun pollSafely() {
         val context = app ?: return
         if (FirmwareInfo.getGeneration() != FirmwareInfo.Gen.SWI69) return
         val percent = EVHardware.getVendorBatterySocPercent()?.toDouble() ?: return

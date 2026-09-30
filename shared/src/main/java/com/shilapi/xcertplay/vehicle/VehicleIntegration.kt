@@ -9,7 +9,9 @@ object VehicleIntegration {
     fun isMg4(context: Context): Boolean = Mg4Vehicle.available(context)
 
     fun onAppOpened(context: Context) {
-        if (isMg4(context)) Mg4Vehicle.start(context) else BydNavigationOutputs.onAppOpened(context)
+        runCatching {
+            if (isMg4(context)) Mg4Vehicle.start(context) else BydNavigationOutputs.onAppOpened(context)
+        }
     }
 
     fun batteryStatus(context: Context): VehicleStatusProvider =
