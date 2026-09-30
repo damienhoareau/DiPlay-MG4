@@ -40,7 +40,16 @@ internal object CarPlayMediaKeys {
         if (controller !== next) releaseLocked()
         appContext = context.applicationContext
         controller = next
-        next.playbackListener = ::onIphonePlaying
+        // AUTUS/SAIC's Android 9 Bluetooth stack treats even an active MediaSession (without an
+        // audio-focus request) as the current AVRCP player.  Registering it while the same phone
+        // is the wireless CarPlay source makes the factory stack send pause back to the iPhone.
+        // Android 9 therefore keeps direct CarPlay controls but does not publish a media session.
+        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
+            next.playbackListener = ::onIphonePlaying
+        } else {
+            next.playbackListener = null
+            Log.i(TAG, "Android 9 MG4: MediaSession and audio focus disabled")
+        }
     }
 
     /** Ends key handling for [expected]; a newer controller's state is left alone. */
@@ -54,6 +63,7 @@ internal object CarPlayMediaKeys {
 
     /** Called when CarPlay music starts or stops; may run on any thread. */
     fun onMediaAudioChanged(active: Boolean) {
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) return
         mainHandler.post { synchronized(this) { updateLocked(active) } }
     }
 
