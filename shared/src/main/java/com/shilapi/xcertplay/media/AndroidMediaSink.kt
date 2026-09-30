@@ -862,7 +862,9 @@ private class AudioRenderer(
             )
         }
         track = built
-        trackAttributes = built.audioAttributes
+        // AudioTrack.getAudioAttributes() is absent from the MG4/SWI69 Android 9 framework.
+        // Keep the attributes used to construct the track instead of querying them back.
+        trackAttributes = attributes
         val capacityBytes = built.bufferSizeInFrames * frameBytes
         startThresholdBytes = MediaAudioBuffer.startBytesFor(plan.startBytes, capacityBytes, PREBUFFER_WRITE_CHUNK_BYTES)
         report("Audio: ready audioType=${format.audioType} codec=${format.codec} " +
