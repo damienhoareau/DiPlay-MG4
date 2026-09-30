@@ -91,12 +91,20 @@ class ManualHotspotManager(
             if (localInterface != null) {
                 val connectionFrequency = frequencyFromConnectionInfo()
                 val scanFrequency = frequencyFromScanResult(localInterface)
-                val channel = observedManualHotspotChannel(
+                val observedChannel = observedManualHotspotChannel(
                     apChannel = apConfiguration?.channel ?: 0,
                     connectionFrequencyMHz = connectionFrequency,
                     scanFrequencyMHz = scanFrequency,
                     apFrequencyMHz = apConfiguration?.frequencyMHz,
                 )
+                // SWI69 reports an automatic channel as zero even after its 5 GHz AP is live.
+                // iAP2 does not treat zero as "scan" here, so advertise the MG4 radio default.
+                val channel = when {
+                    observedChannel > 0 -> observedChannel
+                    expectedChannel > 0 -> expectedChannel
+                    expectedBand == ManualHotspotBand.GHZ_2_4 -> 6
+                    else -> 36
+                }
                 val frequencyMHz = when {
                     apConfiguration?.frequencyMHz != null -> apConfiguration.frequencyMHz
                     connectionFrequency != null -> connectionFrequency
@@ -105,19 +113,18 @@ class ManualHotspotManager(
                 }
                 val security = apConfiguration?.security ?: expectedSecurity
                 onDiagnostic("Manual hotspot configReadable=${apConfiguration != null} " +
-                    "security=$security channelKnown=${channel > 0} " +
+                    "security=$security channelKnown=${observedChannel > 0} advertisedChannel=$channel " +
                     "hardwareAddressKnown=${localInterface.hardwareAddress != null} iface=${localInterface.name} " +
                     "family=${if (localInterface.hostAddress is Inet6Address) "IPv6" else "IPv4"}")
                 if (security != Iap2WirelessSecurity.NONE && passphrase.isEmpty()) {
                     throw IOException("Manual hotspot is secured but no passphrase was provided")
                 }
 
-                if (channel == 0) {
+                if (observedChannel == 0) {
                     Log.w(
                         TAG,
                         "Could not read the active hotspot channel from Android public APIs; " +
-                            "reporting iAP2 channel 0 (auto) instead of configured channel " +
-                            "$expectedChannel",
+                            "using MG4 Android 9 iAP2 fallback channel $channel",
                     )
                 }
                 val observedBandLabel = wifiBandLabel(apConfiguration?.band)
