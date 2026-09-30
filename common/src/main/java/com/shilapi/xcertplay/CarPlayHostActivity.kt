@@ -2787,6 +2787,9 @@ class CarPlayHostActivity : ComponentActivity() {
             deviceId = DiPlayBootstrap.deviceId(airPlayIdentity),
             btMac = DiPlayBluetooth.localAddress(this) ?: DiPlayBootstrap.deviceId(airPlayIdentity),
             sourceVersion = "950.7.1",
+            // MG's factory CarPlay service keeps the standard AirPlay port 7000 bound even when
+            // its UI is idle. Advertise and listen on a separate port for the DiPlay session.
+            port = 7001,
             main = display,
             cluster = clusterDisplayConfig(),
             rightHandDrive = rightHandDrive,
