@@ -8,6 +8,8 @@ OUT="$ROOT/mobile/build/outputs/apk/debug/mobile-debug.apk"
 VERSION="0.2.9-mg4.3"
 ALIGNED="$ROOT/mobile/build/outputs/apk/debug/DiPlay-MG4-SWI69-v$VERSION-aligned.apk"
 SIGNED="$ROOT/mobile/build/outputs/apk/debug/DiPlay-MG4-SWI69-v$VERSION.apk"
+DELIVERY_DIR=$(CDPATH= cd -- "$ROOT/.." && pwd)
+DELIVERY_APK="$DELIVERY_DIR/DiPlay-MG4-SWI69-v$VERSION.apk"
 
 : "${DIPLAY_AUTH_ASSETS_DIR:?Set DIPLAY_AUTH_ASSETS_DIR to the directory containing offline-mfi/}"
 
@@ -25,4 +27,5 @@ fi
   --cert "$KEYS/platform.x509.pem" \
   --out "$SIGNED" "$ALIGNED"
 "$BT/apksigner" verify --verbose --print-certs "$SIGNED"
-echo "$SIGNED"
+cp "$SIGNED" "$DELIVERY_APK"
+echo "$DELIVERY_APK"
