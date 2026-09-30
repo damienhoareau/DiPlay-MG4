@@ -17,6 +17,9 @@
     <uses-permission android:name="android.car.permission.CAR_ENERGY_PORTS" />
     <uses-permission android:name="android.car.permission.CAR_VENDOR_EXTENSION" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- Platform-signed MG build needs direct RFCOMM access to the already-paired iPhone. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_PRIVILEGED" />
+    <uses-permission android:name="android.permission.LOCAL_MAC_ADDRESS" />
     <uses-permission
         android:name="android.permission.BLUETOOTH"
         android:maxSdkVersion="30" />
