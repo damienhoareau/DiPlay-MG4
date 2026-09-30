@@ -989,10 +989,7 @@ class CarPlayController(
                 "wireless RFCOMM connecting address=${device.address} " +
                     "uuid=$IAP2_IPHONE_UUID",
             )
-            val socket = device
-                    .createRfcommSocketToServiceRecord(UUID.fromString(IAP2_IPHONE_UUID))
-                    .also { bluetoothSocket = it }
-            connectBluetoothSocket(socket, device.address)
+            val socket = connectWirelessBluetoothSocket(device)
             debugLog("wireless RFCOMM connected address=${device.address}")
             if (isStaleWirelessRun(generation)) {
                 closeWirelessStack()
@@ -1780,6 +1777,38 @@ class CarPlayController(
             null -> Unit
             is IOException -> throw failure
             else -> throw IOException("Could not connect RFCOMM to $address", failure)
+        }
+    }
+
+    /** MG Android 9 rejects authenticated RFCOMM with EACCES on some FICM builds. */
+    private fun connectWirelessBluetoothSocket(device: BluetoothDevice): BluetoothSocket {
+        val uuid = UUID.fromString(IAP2_IPHONE_UUID)
+        val secure = device.createRfcommSocketToServiceRecord(uuid)
+        bluetoothSocket = secure
+        try {
+            connectBluetoothSocket(secure, device.address)
+            return secure
+        } catch (secureFailure: IOException) {
+            runCatching { secure.close() }
+            bluetoothSocket = null
+            debugLog(
+                "wireless secure RFCOMM failed (${secureFailure.message}); " +
+                    "retrying insecure RFCOMM",
+            )
+            val insecure = device.createInsecureRfcommSocketToServiceRecord(uuid)
+            bluetoothSocket = insecure
+            try {
+                connectBluetoothSocket(insecure, device.address)
+                return insecure
+            } catch (insecureFailure: IOException) {
+                runCatching { insecure.close() }
+                bluetoothSocket = null
+                insecureFailure.addSuppressed(secureFailure)
+                throw IOException(
+                    "Secure and insecure RFCOMM failed: ${insecureFailure.message}",
+                    insecureFailure,
+                )
+            }
         }
     }
 
