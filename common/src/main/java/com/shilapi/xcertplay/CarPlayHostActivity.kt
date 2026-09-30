@@ -3170,7 +3170,7 @@ class CarPlayHostActivity : ComponentActivity() {
             clearPairRecord = { AirPlayPersistence.clearLockdownRecord(this) },
             locationProvider = locationProvider,
             vehicleStatusProvider = if (com.shilapi.xcertplay.hud.BydOutputSettings.batteryToIphone(this)) {
-                com.shilapi.xcertplay.hud.BydNavigationOutputs.batteryStatus(applicationContext)
+                com.shilapi.xcertplay.vehicle.VehicleIntegration.batteryStatus(applicationContext)
             } else {
                 null
             },

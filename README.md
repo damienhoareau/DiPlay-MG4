@@ -1,5 +1,10 @@
 # DiPlay
 
+> This private fork targets the MG4 Comfort head unit running SWI69 / Android 9.
+> The MG integration reuses EVHardware's proven read-only SWI69 paths for battery,
+> range and the parked safety gate. Wireless CarPlay uses the car's existing hotspot
+> on Android 9; Wi-Fi Direct remains unavailable below Android 10.
+
 **CarPlay for compatible BYD Android head units.** Wired and wireless, with the familiar DiAuto interface. Independent app: `com.shihab.diplay`.
 
 > **BYD support scope:** These projects focus on BYD cars. They may work on other brands, but other brands are unsupported and there are no plans to add support or fix brand-specific incompatibilities.

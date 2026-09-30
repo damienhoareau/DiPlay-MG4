@@ -92,7 +92,7 @@ class DiPlayActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         languagePreferenceAtCreate = AppLocale.preference(this)
-        com.shilapi.xcertplay.hud.BydNavigationOutputs.onAppOpened(applicationContext)
+        com.shilapi.xcertplay.vehicle.VehicleIntegration.onAppOpened(applicationContext)
         WindowCompat.setDecorFitsSystemWindows(window, true)
         window.statusBarColor = BG; window.navigationBarColor = BG
         WindowInsetsControllerCompat(window, window.decorView).apply {
@@ -296,6 +296,32 @@ class DiPlayActivity : ComponentActivity() {
                 } else {
                     reconnectForLocation()
                 }
+            }
+        }
+        if (com.shilapi.xcertplay.vehicle.VehicleIntegration.isMg4(this)) section(content, getString(R.string.mg4_vehicle), R.drawable.ic_dp_navigation) { card ->
+            toggle(card, getString(R.string.car_battery_for_the_iphone),
+                getString(R.string.mg4_battery_for_the_iphone_description),
+                BydOutputSettings.batteryToIphone(this)) {
+                BydOutputSettings.setBatteryToIphone(this, it)
+                if (it) com.shilapi.xcertplay.vehicle.Mg4Vehicle.start(applicationContext)
+                if (CarPlayBackgroundSession.hasSession()) connect(AirPlayPersistence.loadWirelessEnabled(this))
+            }
+            val connectors = EvChargingConnectors.entries
+            choice(card, getString(R.string.charging_connectors), connectors.map { it.localizedLabel(this) },
+                connectors.indexOf(BydOutputSettings.chargingConnectors(this))) {
+                BydOutputSettings.setChargingConnectors(this, connectors[it])
+            }
+            val lowCharge = BydOutputSettings.lowChargePresets
+            choice(card, getString(R.string.low_charge_warning), lowCharge.map {
+                    getString(if (it == BydOutputSettings.DEFAULT_LOW_CHARGE_PERCENT) R.string.percent_default else R.string.percent_value, it)
+                }, lowCharge.indexOf(BydOutputSettings.lowChargePercent(this)).coerceAtLeast(0), reconnects = false) {
+                BydOutputSettings.setLowChargePercent(this, lowCharge[it])
+            }
+            toggle(card, getString(R.string.video_while_parked),
+                getString(R.string.mg4_video_while_parked_description),
+                BydOutputSettings.videoWhileParked(this)) {
+                BydOutputSettings.setVideoWhileParked(this, it)
+                if (CarPlayBackgroundSession.hasSession()) connect(AirPlayPersistence.loadWirelessEnabled(this))
             }
         }
         if (com.shilapi.xcertplay.hud.BydOutputSettings.available(this)) section(content, getString(R.string.byd_navigation), R.drawable.ic_dp_navigation) { card ->

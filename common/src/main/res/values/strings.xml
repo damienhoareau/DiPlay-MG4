@@ -114,6 +114,9 @@
     <string name="band">Band</string>
     <string name="bluetooth_settings">Bluetooth settings</string>
     <string name="byd_navigation">BYD navigation</string>
+    <string name="mg4_vehicle">MG4 vehicle integration</string>
+    <string name="mg4_battery_for_the_iphone_description">Sends the SWI69 battery percentage and range to Apple Maps using the same read-only vehicle interface as EVABRPUploader. Reconnects CarPlay.</string>
+    <string name="mg4_video_while_parked_description">Allows supported iPhone video only while the MG4 reports gear P. An unreadable gear keeps video disabled. Reconnects CarPlay.</string>
     <string name="cancel">Cancel</string>
     <string name="car_home">Car home</string>
     <string name="car_hotspot_details">Car hotspot details</string>
