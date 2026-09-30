@@ -1785,36 +1785,37 @@ class CarPlayController(
         }
     }
 
-    /** MG Android 9 rejects authenticated RFCOMM with EACCES on some FICM builds. */
+    /** MG Android 9 accepts a secure RFCOMM connection but rejects its first write with EACCES. */
     private fun connectWirelessBluetoothSocket(device: BluetoothDevice): BluetoothSocket {
         val uuid = UUID.fromString(IAP2_IPHONE_UUID)
-        var secure: BluetoothSocket? = null
+        var insecure: BluetoothSocket? = null
         try {
-            secure = device.createRfcommSocketToServiceRecord(uuid)
-            bluetoothSocket = secure
-            connectBluetoothSocket(secure, device.address)
-            return secure
-        } catch (secureFailure: Throwable) {
-            runCatching { secure?.close() }
+            // Start unencrypted on Android 9: link authentication is performed by iAP2/MFi.
+            insecure = device.createInsecureRfcommSocketToServiceRecord(uuid)
+            bluetoothSocket = insecure
+            connectBluetoothSocket(insecure, device.address)
+            return insecure
+        } catch (insecureFailure: Throwable) {
+            runCatching { insecure?.close() }
             bluetoothSocket = null
             debugLog(
-                "wireless secure RFCOMM failed (${secureFailure.javaClass.name}: ${secureFailure.message}); " +
-                    "retrying insecure RFCOMM",
+                "wireless insecure RFCOMM failed (${insecureFailure.javaClass.name}: ${insecureFailure.message}); " +
+                    "retrying secure RFCOMM",
             )
-            var insecure: BluetoothSocket? = null
+            var secure: BluetoothSocket? = null
             try {
-                insecure = device.createInsecureRfcommSocketToServiceRecord(uuid)
-                bluetoothSocket = insecure
-                connectBluetoothSocket(insecure, device.address)
-                return insecure
-            } catch (insecureFailure: Throwable) {
-                runCatching { insecure?.close() }
+                secure = device.createRfcommSocketToServiceRecord(uuid)
+                bluetoothSocket = secure
+                connectBluetoothSocket(secure, device.address)
+                return secure
+            } catch (secureFailure: Throwable) {
+                runCatching { secure?.close() }
                 bluetoothSocket = null
-                insecureFailure.addSuppressed(secureFailure)
+                secureFailure.addSuppressed(insecureFailure)
                 throw IOException(
-                    "Secure RFCOMM failed [${secureFailure.javaClass.simpleName}: ${secureFailure.message}]; " +
-                        "insecure RFCOMM failed [${insecureFailure.javaClass.simpleName}: ${insecureFailure.message}]",
-                    insecureFailure,
+                    "Insecure RFCOMM failed [${insecureFailure.javaClass.simpleName}: ${insecureFailure.message}]; " +
+                        "secure RFCOMM failed [${secureFailure.javaClass.simpleName}: ${secureFailure.message}]",
+                    secureFailure,
                 )
             }
         }
