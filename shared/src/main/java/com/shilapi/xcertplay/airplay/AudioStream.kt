@@ -6,6 +6,8 @@ import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.net.SocketAddress
+import java.util.LinkedHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -46,11 +48,20 @@ class AudioStream(
     private val receivedPackets = AtomicInteger()
     private val decryptedPackets = AtomicInteger()
     private val authenticationFailures = AtomicInteger()
+    private val resendRequestSequence = AtomicInteger()
     private var dataSocket: DatagramSocket? = null
     private var controlSocket: DatagramSocket? = null
     private var dataThread: Thread? = null
     private var controlThread: Thread? = null
     private var started = false
+    @Volatile private var controlPeer: SocketAddress? = null
+    private val reorderLock = Any()
+    private val pending = LinkedHashMap<Int, DecodedPacket>()
+    private var nextSequence: Int? = null
+    private var gapStartedNs = 0L
+    private var lastResendStart = -1
+
+    private data class DecodedPacket(val sequence: Int, val rtp: ByteArray, val sample: Int)
 
     fun listen(listener: Listener): Pair<Int, Int> {
         val data = bindAnyPort()
@@ -68,7 +79,7 @@ class AudioStream(
             isDaemon = true
             start()
         }
-        controlThread = Thread({ runControl(control) }, "airplay-rtcp-rx").apply {
+        controlThread = Thread({ runControl(control, listener) }, "airplay-rtcp-rx").apply {
             isDaemon = true
             start()
         }
@@ -84,6 +95,10 @@ class AudioStream(
     }
 
     private fun runData(socket: DatagramSocket, listener: Listener) {
+        // Keep RTP draining ahead of UI, codec and vehicle polling work on the slow MT2712.
+        // This cannot recreate radio-lost UDP packets, but prevents scheduler stalls from
+        // turning a recoverable Wi-Fi burst into a kernel receive-queue overflow.
+        runCatching { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO) }
         val stats = StreamReceiveStats("audio type=$streamType", onDiagnostic)
         val buffer = ByteArray(DATAGRAM_BYTES)
         try {
@@ -103,6 +118,7 @@ class AudioStream(
                     timestamp = if (packet.length >= RTP_HEADER_LEN) readU32Be(buffer, 4) else null,
                 )
                 val wire = packet.data.copyOf(packet.length)
+                val sequence = if (wire.size >= RTP_HEADER_LEN) readU16Be(wire, 2) else -1
                 val packetNumber = receivedPackets.incrementAndGet()
                 if (wire.size < RTP_HEADER_LEN + TAIL_LEN) {
                     if (packetNumber == 1) {
@@ -161,25 +177,112 @@ class AudioStream(
                     )
                 }
                 listener.onPacket(wire, rtp, sample, null)
-                if (!started) {
-                    started = true
-                    listener.onStarted(sample)
-                }
-                listener.onRtp(rtp, sample)
+                deliverOrdered(DecodedPacket(sequence, rtp, sample), listener)
                 stats.processed()
             }
         } finally { stats.flush(ended = true) }
     }
 
-    private fun runControl(socket: DatagramSocket) {
+    private fun runControl(socket: DatagramSocket, listener: Listener) {
         val buffer = ByteArray(DATAGRAM_BYTES)
         while (!closed.get()) {
             try {
-                socket.receive(DatagramPacket(buffer, buffer.size))
+                val packet = DatagramPacket(buffer, buffer.size)
+                socket.receive(packet)
+                controlPeer = packet.socketAddress
+                // AirPlay retransmit response (PT 0x56) wraps the original encrypted RTP
+                // datagram after a four-byte RTCP header.
+                if (packet.length > 4 + RTP_HEADER_LEN + TAIL_LEN &&
+                    (buffer[1].toInt() and 0x7f) == RETRANSMIT_RESPONSE_TYPE
+                ) {
+                    decodeRetransmitted(buffer.copyOfRange(4, packet.length), listener)
+                }
             } catch (_: Exception) {
                 if (closed.get()) return
             }
         }
+    }
+
+    private fun decodeRetransmitted(wire: ByteArray, listener: Listener) {
+        val sequence = readU16Be(wire, 2)
+        val sealedEnd = wire.size - NONCE_LEN
+        val sample = readU32Be(wire, 4)
+        val payload = try {
+            AirPlayCrypto.chachaOpen(
+                key,
+                ByteArray(12).also { wire.copyInto(it, 4, sealedEnd, wire.size) },
+                wire.copyOfRange(RTP_HEADER_LEN, sealedEnd),
+                wire.copyOfRange(4, RTP_HEADER_LEN),
+            )
+        } catch (_: Exception) {
+            return
+        }
+        val rtp = wire.copyOf(RTP_HEADER_LEN) + payload
+        listener.onPacket(wire, rtp, sample, null)
+        deliverOrdered(DecodedPacket(sequence, rtp, sample), listener)
+    }
+
+    private fun deliverOrdered(packet: DecodedPacket, listener: Listener) {
+        val ready = ArrayList<DecodedPacket>()
+        var resend: Pair<Int, Int>? = null
+        synchronized(reorderLock) {
+            if (nextSequence == null) nextSequence = packet.sequence
+            val expected = nextSequence ?: packet.sequence
+            val distance = (packet.sequence - expected) and 0xffff
+            if (distance < 0x8000) pending.putIfAbsent(packet.sequence, packet)
+
+            while (true) {
+                val next = nextSequence ?: break
+                val found = pending.remove(next) ?: break
+                ready += found
+                nextSequence = (next + 1) and 0xffff
+                gapStartedNs = 0L
+                lastResendStart = -1
+            }
+
+            if (pending.isNotEmpty()) {
+                val missing = nextSequence ?: return@synchronized
+                val nearest = pending.keys.minByOrNull { (it - missing) and 0xffff } ?: missing
+                val count = ((nearest - missing) and 0xffff).coerceAtMost(MAX_RESEND_PACKETS)
+                if (count > 0 && lastResendStart != missing) {
+                    lastResendStart = missing
+                    resend = missing to count
+                }
+                val now = System.nanoTime()
+                if (gapStartedNs == 0L) gapStartedNs = now
+                if (now - gapStartedNs >= REORDER_WAIT_NS || pending.size >= MAX_PENDING_PACKETS) {
+                    nextSequence = nearest
+                    gapStartedNs = 0L
+                    while (true) {
+                        val next = nextSequence ?: break
+                        val found = pending.remove(next) ?: break
+                        ready += found
+                        nextSequence = (next + 1) and 0xffff
+                    }
+                }
+            }
+        }
+        resend?.let { requestResend(it.first, it.second) }
+        ready.forEach { ordered ->
+            if (!started) {
+                started = true
+                listener.onStarted(ordered.sample)
+            }
+            listener.onRtp(ordered.rtp, ordered.sample)
+        }
+    }
+
+    private fun requestResend(firstMissing: Int, count: Int) {
+        val socket = controlSocket ?: return
+        val peer = controlPeer ?: return
+        val requestSequence = resendRequestSequence.incrementAndGet() and 0xffff
+        val request = byteArrayOf(
+            0x80.toByte(), 0xd5.toByte(),
+            (requestSequence ushr 8).toByte(), requestSequence.toByte(),
+            (firstMissing ushr 8).toByte(), firstMissing.toByte(),
+            (count ushr 8).toByte(), count.toByte(),
+        )
+        runCatching { socket.send(DatagramPacket(request, request.size, peer)) }
     }
 
     private fun bindAnyPort(): DatagramSocket {
@@ -195,6 +298,9 @@ class AudioStream(
             ((source[offset + 2].toInt() and 0xff) shl 8) or
             (source[offset + 3].toInt() and 0xff)
 
+    private fun readU16Be(source: ByteArray, offset: Int): Int =
+        ((source[offset].toInt() and 0xff) shl 8) or (source[offset + 1].toInt() and 0xff)
+
     private fun ByteArray.toHexString(): String =
         joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
 
@@ -208,6 +314,10 @@ class AudioStream(
         const val TAIL_LEN = TAG_LEN + NONCE_LEN
         const val FIRST_PACKET_LOG_COUNT = 3
         const val PACKET_LOG_INTERVAL = 100
+        const val RETRANSMIT_RESPONSE_TYPE = 0x56
+        const val MAX_RESEND_PACKETS = 128
+        const val MAX_PENDING_PACKETS = 32
+        const val REORDER_WAIT_NS = 300_000_000L
     }
 }
 

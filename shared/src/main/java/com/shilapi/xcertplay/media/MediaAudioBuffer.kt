@@ -6,8 +6,10 @@ package com.shilapi.xcertplay.media
  * outlasts them. Calls, Siri and navigation prompts keep the small low-latency buffer.
  */
 object MediaAudioBuffer {
-    const val DEFAULT_MILLIS = 300
-    val presets = listOf(DEFAULT_MILLIS, 500, 1000)
+    // MG4/SWI69 commonly delivers wireless media in bursts separated by 400-600 ms.
+    // Calls, Siri and navigation do not use this value and remain low latency.
+    const val DEFAULT_MILLIS = 750
+    val presets = listOf(500, DEFAULT_MILLIS, 1000)
 
     private const val HEADROOM_MILLIS = 200 // room above the start level so bursts after a gap fit
     private const val MIN_TRACK_BUFFER_BYTES = 16 * 1024

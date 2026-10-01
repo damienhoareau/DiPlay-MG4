@@ -332,6 +332,8 @@ class CarPlayHostActivity : ComponentActivity() {
     private var startAfterHandshakeReset = false
     private var restartGeneration = 0
     private var reconnectScheduled = false
+    private var startupWatchdogAttempts = 0
+    private var videoStallRecoveryAt = 0L
     private var sessionLog: SessionLogFile? = null
     private var gestureSequenceActive = false
     private var gestureTracking = false
@@ -2993,6 +2995,9 @@ class CarPlayHostActivity : ComponentActivity() {
                         return@runOnUiThread
                     }
                     activeAirPlaySession = session
+                    cancelStartupWatchdog()
+                    startupWatchdogAttempts = 0
+                    armVideoStallWatchdog()
                     CarPlayBackgroundSession.active = true
                     reconnectAttempts = 0
                     syncAirPlayDarkMode()
@@ -3003,6 +3008,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
             override fun onSessionEnded(session: AirPlaySession) {
                 runOnUiThread {
+                    cancelVideoStallWatchdog()
                     if (activeAirPlaySession === session) activeAirPlaySession = null
                     CarPlayBackgroundSession.active = false
                     if (menuOpen || controllerGeneration != restartGeneration) {
@@ -3106,6 +3112,7 @@ class CarPlayHostActivity : ComponentActivity() {
             },
         )
         updateDebugOverlays()
+        if (!CarPlayBackgroundSession.active) armStartupWatchdog()
         return true
     }
 
@@ -3180,6 +3187,7 @@ class CarPlayHostActivity : ComponentActivity() {
             },
         )
         controller = next
+        armStartupWatchdog()
         CarPlayMediaKeys.attach(this, next)
         if (airPlayConfig.videoInCar) CarPlayVideo.attach(this, next)
         CarPlayBackgroundSession.store(next, renderer, size.width, size.height, this) { completion ->
@@ -3312,6 +3320,75 @@ class CarPlayHostActivity : ComponentActivity() {
         )
     }
 
+    private fun armStartupWatchdog() {
+        cancelStartupWatchdog()
+        mainHandler.postDelayed(startupHotspotWarning, STARTUP_HOTSPOT_WARNING_MILLIS)
+        mainHandler.postDelayed(startupTimeout, STARTUP_TIMEOUT_MILLIS)
+    }
+
+    private fun cancelStartupWatchdog() {
+        mainHandler.removeCallbacks(startupHotspotWarning)
+        mainHandler.removeCallbacks(startupTimeout)
+    }
+
+    private fun armVideoStallWatchdog() {
+        cancelVideoStallWatchdog()
+        videoStallRecoveryAt = 0L
+        mainHandler.postDelayed(videoStallWatchdog, VIDEO_STALL_POLL_MILLIS)
+    }
+
+    private fun cancelVideoStallWatchdog() {
+        mainHandler.removeCallbacks(videoStallWatchdog)
+        videoStallRecoveryAt = 0L
+    }
+
+    private val videoStallWatchdog = object : Runnable {
+        override fun run() {
+            if (shuttingDown.get() || activeAirPlaySession == null || !wirelessEnabled || menuOpen) return
+            val now = android.os.SystemClock.elapsedRealtime()
+            val lastFrame = sink?.lastVideoFrameReceivedMillis(SCREEN_TYPE_MAIN)
+            if (SCREEN_TYPE_MAIN in activeScreenStreamTypes && lastFrame != null &&
+                now - lastFrame >= VIDEO_STALL_RECOVERY_MILLIS
+            ) {
+                if (videoStallRecoveryAt == 0L) {
+                    videoStallRecoveryAt = now
+                    sink?.requestVideoRecoveryNow(SCREEN_TYPE_MAIN)
+                    setConnectionStage(getString(R.string.video_connection_stalled_recovering))
+                    appendLog("Video stall watchdog: requesting keyframe age=${now - lastFrame}ms")
+                } else if (now - videoStallRecoveryAt >= VIDEO_STALL_RESTART_MILLIS) {
+                    appendLog("Video stall watchdog: keyframe recovery failed; restarting connection")
+                    videoStallRecoveryAt = 0L
+                    restartCarPlay("Video stream stalled")
+                    return
+                }
+            } else {
+                videoStallRecoveryAt = 0L
+            }
+            mainHandler.postDelayed(this, VIDEO_STALL_POLL_MILLIS)
+        }
+    }
+
+    private val startupHotspotWarning = Runnable {
+        if (shuttingDown.get() || activeAirPlaySession != null || !wirelessEnabled || menuOpen) return@Runnable
+        if (com.shilapi.xcertplay.network.CarHotspotStatus.hasConnectedClient() != true) {
+            setConnectionStage(getString(R.string.iphone_not_on_car_hotspot, manualHotspotSsid))
+            appendLog("Startup watchdog: no active hotspot client detected")
+        }
+    }
+
+    private val startupTimeout = Runnable {
+        if (shuttingDown.get() || activeAirPlaySession != null || !wirelessEnabled || menuOpen) return@Runnable
+        if (startupWatchdogAttempts >= MAX_STARTUP_WATCHDOG_RETRIES) {
+            setConnectionStage(getString(R.string.iphone_not_on_car_hotspot, manualHotspotSsid))
+            appendLog("Startup watchdog: retry limit reached")
+            return@Runnable
+        }
+        startupWatchdogAttempts += 1
+        setConnectionStage(getString(R.string.carplay_start_timed_out_retrying))
+        appendLog("Startup watchdog: restarting stalled wireless connection attempt=$startupWatchdogAttempts")
+        restartCarPlay("Wireless startup timed out")
+    }
+
     /** Full-stack fallback when an AirPlay-only reconnect is unavailable. */
     private fun restartCarPlay(reason: String) {
         if (!CarPlayBackgroundSession.isOwner(this)) return
@@ -3396,6 +3473,8 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun shutdown(terminateProcess: Boolean, reason: String, completion: () -> Unit = {}) {
         if (!shuttingDown.compareAndSet(false, true)) { completion(); return }
         restartGeneration += 1
+        cancelStartupWatchdog()
+        cancelVideoStallWatchdog()
         mainHandler.removeCallbacks(applyDisplaySize)
         val oldController = controller
         val oldSink = sink
@@ -3554,6 +3633,7 @@ class CarPlayHostActivity : ComponentActivity() {
         message.contains("paired", true) -> getString(R.string.looking_for_your_paired_iphone)
         message.contains("Bluetooth", true) -> getString(R.string.connecting_to_your_iphone)
         message.contains("reconnect", true) || message.contains("ended", true) -> getString(R.string.reconnecting_to_your_iphone)
+        message.contains("control running", true) -> getString(R.string.waiting_for_iphone_hotspot)
         message.contains("active", true) || message.contains("running", true) -> getString(R.string.opening_carplay)
         else -> getString(R.string.getting_carplay_ready)
     }
@@ -3662,6 +3742,12 @@ class CarPlayHostActivity : ComponentActivity() {
         const val RECONNECT_DELAY_MILLIS = 2_000L
         const val IAP_TUNNEL_RECONNECT_DELAY_MILLIS = 15_000L
         const val CONTROLLER_CLOSE_TIMEOUT_MILLIS = 4_000L
+        const val STARTUP_HOTSPOT_WARNING_MILLIS = 20_000L
+        const val STARTUP_TIMEOUT_MILLIS = 40_000L
+        const val MAX_STARTUP_WATCHDOG_RETRIES = 2
+        const val VIDEO_STALL_POLL_MILLIS = 2_000L
+        const val VIDEO_STALL_RECOVERY_MILLIS = 8_000L
+        const val VIDEO_STALL_RESTART_MILLIS = 5_000L
         const val AUDIO_CAPTURE_MARKER = "audio-capture.enabled"
         const val AUDIO_CAPTURE_DIRECTORY = "audio-captures"
         const val PROTOCOL_TRACE_PREFIX = "TRACE "

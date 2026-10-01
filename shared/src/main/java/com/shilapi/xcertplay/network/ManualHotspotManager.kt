@@ -112,11 +112,17 @@ class ManualHotspotManager(
                     else -> null
                 }
                 val security = apConfiguration?.security ?: expectedSecurity
+                // On MG4/SWI69 the hotspot password can be changed by the vehicle UI while our
+                // persisted copy remains stale.  A stale credential makes iOS reject its saved
+                // network until the user forgets it.  Platform-signed builds can read the live
+                // legacy SoftAP configuration, so always advertise that credential when present.
+                val effectivePassphrase = apConfiguration?.passphrase ?: passphrase
                 onDiagnostic("Manual hotspot configReadable=${apConfiguration != null} " +
                     "security=$security channelKnown=${observedChannel > 0} advertisedChannel=$channel " +
+                    "credentialSource=${if (apConfiguration?.passphrase != null) "live" else "saved"} " +
                     "hardwareAddressKnown=${localInterface.hardwareAddress != null} iface=${localInterface.name} " +
                     "family=${if (localInterface.hostAddress is Inet6Address) "IPv6" else "IPv4"}")
-                if (security != Iap2WirelessSecurity.NONE && passphrase.isEmpty()) {
+                if (security != Iap2WirelessSecurity.NONE && effectivePassphrase.isEmpty()) {
                     throw IOException("Manual hotspot is secured but no passphrase was provided")
                 }
 
@@ -130,7 +136,7 @@ class ManualHotspotManager(
                 val observedBandLabel = wifiBandLabel(apConfiguration?.band)
                 return WirelessHotspotInfo(
                     ssid = expectedSsid,
-                    passphrase = passphrase,
+                    passphrase = effectivePassphrase,
                     security = security,
                     channel = channel,
                     frequencyMHz = frequencyMHz,
@@ -319,6 +325,7 @@ class ManualHotspotManager(
                 channel = channel,
                 frequencyMHz = wifiChannelToFrequencyMhz(channel, band),
                 security = mapSoftApSecurity(configuration.securityType),
+                passphrase = configuration.passphrase?.takeIf { it.isNotEmpty() },
             )
         } catch (_: Throwable) {
             null
@@ -348,6 +355,7 @@ class ManualHotspotManager(
                 channel = channel,
                 frequencyMHz = wifiChannelToFrequencyMhz(channel, band),
                 security = mapWifiConfigurationSecurity(configuration),
+                passphrase = unquote(configuration.preSharedKey)?.takeIf { it.isNotEmpty() },
             )
         } catch (_: Throwable) {
             null
@@ -422,6 +430,7 @@ class ManualHotspotManager(
         val channel: Int,
         val frequencyMHz: Int?,
         val security: Iap2WirelessSecurity,
+        val passphrase: String?,
     )
 
     private class LocalHotspotInterface(

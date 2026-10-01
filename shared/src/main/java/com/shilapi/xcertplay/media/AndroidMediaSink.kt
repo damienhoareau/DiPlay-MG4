@@ -57,11 +57,11 @@ internal class AudioFocusCoordinator(
 
     @Synchronized
     fun acquire(track: AudioTrack, channel: AudioChannel, attributes: AudioAttributes) {
-        // On the MG4 Android 9 image, taking Android audio focus wakes the factory Bluetooth/
-        // AVRCP owner, which immediately pauses the same iPhone after CarPlay audio starts.
-        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P || !enabled || manager == null ||
-            channel == AudioChannel.NAVIGATION
-        ) return
+        // MG4 needs audio focus to open the vehicle media output. The wireless controller now
+        // disables the classic Bluetooth radio after handoff, so the factory AVRCP owner cannot
+        // respond to this focus request by pausing the iPhone.
+        val forceOnMg4 = Build.VERSION.SDK_INT == Build.VERSION_CODES.P
+        if ((!enabled && !forceOnMg4) || manager == null || channel == AudioChannel.NAVIGATION) return
         active[track] = Entry(channel, attributes)
         refreshRequest()
     }
@@ -93,6 +93,19 @@ internal class AudioFocusCoordinator(
             .build()
         request = next
         requestedChannel = primary.channel
+        if (Build.VERSION.SDK_INT == Build.VERSION_CODES.P && primary.channel == AudioChannel.MEDIA) {
+            // The factory Bluetooth source can leave STREAM_MUSIC muted or at zero when its
+            // radio is shut down. Open that local Android path before requesting focus.
+            runCatching { manager?.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0) }
+            val current = runCatching { manager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: 0 }.getOrDefault(0)
+            val maximum = runCatching { manager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 0 }.getOrDefault(0)
+            if (current == 0 && maximum > 0) {
+                runCatching { manager?.setStreamVolume(AudioManager.STREAM_MUSIC, maxOf(1, maximum / 3), 0) }
+            }
+            runCatching {
+                report("Audio: MG4 media route forced stream=3 volume=${manager?.getStreamVolume(AudioManager.STREAM_MUSIC)} max=$maximum")
+            }
+        }
         val result = manager?.requestAudioFocus(next)
         val line = "Audio: focus requested channel=${primary.channel} gain=$gain granted=$result activeTracks=${active.size}"
         Log.i(TAG, line)
@@ -159,6 +172,7 @@ class AndroidMediaSink(
     private val pendingVideoCodec = ConcurrentHashMap<Int, VideoCodec>()
     private val videoRecoveryHandlers = ConcurrentHashMap<Int, () -> Unit>()
     private val videoDiagnosticHandlers = ConcurrentHashMap<Int, (String) -> Unit>()
+    private val lastVideoFrameReceivedMillis = ConcurrentHashMap<Int, Long>()
     private val recoveryPending = AtomicBoolean(false)
     private val recoveryExecutor = Executors.newSingleThreadExecutor { task ->
         Thread(task, "carplay-video-recovery").apply { isDaemon = true }
@@ -182,6 +196,10 @@ class AndroidMediaSink(
             }
         } catch (_: java.util.concurrent.RejectedExecutionException) { recoveryPending.set(false) }
     }
+
+    fun requestVideoRecoveryNow(type: Int) = requestVideoRecovery(type)
+
+    fun lastVideoFrameReceivedMillis(type: Int): Long? = lastVideoFrameReceivedMillis[type]
 
     fun setSurface(type: Int, surface: Surface) {
         surfaces[type] = surface
@@ -209,6 +227,7 @@ class AndroidMediaSink(
     }
 
     override fun onVideoFrame(type: Int, naluBytes: ByteArray) {
+        lastVideoFrameReceivedMillis[type] = android.os.SystemClock.elapsedRealtime()
         videoDecoder(type).submit(naluBytes)
     }
 
@@ -216,6 +235,7 @@ class AndroidMediaSink(
         if (!active) {
             videoRecoveryHandlers.remove(type)
             videoDiagnosticHandlers.remove(type)
+            lastVideoFrameReceivedMillis.remove(type)
             videoDecoders.remove(type)?.close()
             pendingVideoCodec.remove(type)
         }
@@ -226,11 +246,17 @@ class AndroidMediaSink(
     }
 
     override fun onAudioStarted(id: AudioStreamId, format: AudioFormat, firstSample: Int) {
+        if (format.audioType == "media") {
+            onAudioDiagnostic(
+                "Audio: hybrid MG Bluetooth media; local CarPlay renderer bypassed",
+            )
+            return
+        }
         audioRenderer(id, format).start()
-        if (format.audioType == "media") updateMediaAudio(id, true)
     }
 
     override fun onAudioRtp(id: AudioStreamId, format: AudioFormat, rtp: ByteArray, sample: Int) {
+        if (format.audioType == "media") return
         audioRenderer(id, format).submit(rtp, sample)
     }
 
@@ -267,6 +293,7 @@ class AndroidMediaSink(
         videoDecoders.clear()
         videoRecoveryHandlers.clear()
         videoDiagnosticHandlers.clear()
+        lastVideoFrameReceivedMillis.clear()
         recoveryExecutor.shutdownNow()
         audioRenderers.values.forEach(AudioRenderer::close)
         audioRenderers.clear()
@@ -713,6 +740,8 @@ private class AudioRenderer(
     private var zeroWritesThisWindow = 0
     private var partialWritesThisWindow = 0
     private var lastPlaybackHeadFrames: Long? = null
+    private var lastUnderrunCount: Int? = null
+    private var underrunsThisWindow = 0
     private var maxWriteMs = 0L
     private var statsWindowStartNs = 0L
     private var bytesPerSecond = 0
@@ -866,6 +895,7 @@ private class AudioRenderer(
             )
         }
         track = built
+        lastUnderrunCount = runCatching { built.underrunCount }.getOrNull()
         // AudioTrack.getAudioAttributes() is absent from the MG4/SWI69 Android 9 framework.
         // Keep the attributes used to construct the track instead of querying them back.
         trackAttributes = attributes
@@ -897,7 +927,12 @@ private class AudioRenderer(
 
     /** 0 keeps usage routing; 1-10 selects an Android legacy stream ID. */
     private fun channelOverride(channel: AudioChannel): Int = when (channel) {
-        AudioChannel.MEDIA -> mediaChannel
+        // SWI69 does not route a plain USAGE_MEDIA AudioTrack to the speakers once its factory
+        // Bluetooth source is disabled. Use Android's concrete music stream unless the user has
+        // explicitly selected another legacy vehicle stream.
+        AudioChannel.MEDIA -> if (Build.VERSION.SDK_INT == Build.VERSION_CODES.P && mediaChannel == 0) {
+            AudioManager.STREAM_MUSIC
+        } else mediaChannel
         AudioChannel.NAVIGATION -> navigationChannel
         else -> 0
     }
@@ -1200,15 +1235,16 @@ private class AudioRenderer(
 
     private fun maintainPlaybackBuffer() {
         val track = track ?: return
-        if (bufferProgress.shouldRebuffer(mappedChannel == AudioChannel.MEDIA, playbackStarted,
-                false, queue.isEmpty(), track.playbackHeadPosition)) {
-            // The hardware buffer has actually drained. Pause without flushing or discarding PCM,
-            // then use the configured start threshold again when music resumes.
-            track.pause()
-            playbackStarted = false
-            prebufferBytes = 0
-            rebufferCount++
-        }
+        val currentUnderruns = runCatching { track.underrunCount }.getOrNull()
+        val previousUnderruns = lastUnderrunCount
+        val underrunSinceLastCheck = currentUnderruns != null && previousUnderruns != null &&
+            currentUnderruns > previousUnderruns
+        if (underrunSinceLastCheck) underrunsThisWindow += currentUnderruns!! - previousUnderruns!!
+        if (currentUnderruns != null) lastUnderrunCount = currentUnderruns
+        // Do not pause a playing MG4 track after an underrun. AudioTrack resumes as soon as the
+        // next PCM block arrives; pausing here turned each short Wi-Fi loss into another full
+        // prebuffer delay (up to the user's 1000 ms setting) and made the audible skips much worse.
+        // Keep counting underruns for diagnostics, but prebuffer only once at stream startup.
         // A short final burst may never reach the start threshold. Play it after a bounded wait.
         if (!playbackStarted && prebufferBytes > 0 && queue.isEmpty() &&
             System.nanoTime() - lastPcmWriteNs >= BUFFER_TAIL_WAIT_NS) {
@@ -1236,7 +1272,7 @@ private class AudioRenderer(
             "trackState=${currentTrack?.state ?: -1} playState=${currentTrack?.playState ?: -1} " +
             "sampleRate=${format.sampleRate} trackBufferFrames=$trackCapacityFrames " +
             "rx=${packetsReceived.getAndSet(0)} " +
-            "dropped=${packetsDropped.getAndSet(0)} underruns=unavailable queue=${queue.size} " +
+            "dropped=${packetsDropped.getAndSet(0)} underruns=$underrunsThisWindow queue=${queue.size} " +
             "playing=$playbackStarted maxGapMs=${maxArrivalGapMs.getAndSet(0)} " +
             "sinceRxMs=${if (lastRx == 0L) -1 else (now - lastRx) / 1_000_000L} maxWriteMs=$maxWriteMs " +
             "writtenFrames=$writtenFramesThisWindow totalWrittenFrames=$totalWrittenFrames " +
@@ -1253,6 +1289,7 @@ private class AudioRenderer(
         lastWriteErrorCode = null
         zeroWritesThisWindow = 0
         partialWritesThisWindow = 0
+        underrunsThisWindow = 0
         statsWindowStartNs = now
     }
 

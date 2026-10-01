@@ -24,6 +24,7 @@ object Mg4Vehicle : VehicleStatusProvider {
     @Volatile private var latest: VehicleStatusSnapshot? = null
     @Volatile private var latestMillis = 0L
     @Volatile private var started = false
+    @Volatile private var initialized = false
     private val executor = Executors.newSingleThreadScheduledExecutor { runnable ->
         Thread(runnable, "diplay-mg4-vehicle").apply { isDaemon = true }
     }
@@ -37,18 +38,21 @@ object Mg4Vehicle : VehicleStatusProvider {
     @Synchronized
     fun start(context: Context) {
         app = context.applicationContext
-        try {
-            EVHardware.init(context.applicationContext)
-        } catch (error: Throwable) {
-            Log.e(TAG, "EVHardware initialization failed; disabling vehicle data", error)
-            return
-        }
         if (started) {
-            executor.execute(::poll)
+            if (initialized) executor.execute(::poll)
             return
         }
         started = true
-        executor.scheduleWithFixedDelay(::poll, 0, READ_MILLIS, TimeUnit.MILLISECONDS)
+        executor.execute {
+            try {
+                EVHardware.init(context.applicationContext)
+                initialized = true
+                poll()
+                executor.scheduleWithFixedDelay(::poll, READ_MILLIS, READ_MILLIS, TimeUnit.MILLISECONDS)
+            } catch (error: Throwable) {
+                Log.e(TAG, "EVHardware initialization failed; disabling vehicle data", error)
+            }
+        }
     }
 
     override fun snapshot(): VehicleStatusSnapshot? =

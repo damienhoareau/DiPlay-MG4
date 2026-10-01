@@ -223,6 +223,7 @@ class CarPlayController(
     private val wirelessHandoffRequested = AtomicBoolean(false)
     private val wirelessTunnelReady = AtomicBoolean(false)
     private val wirelessActiveReported = AtomicBoolean(false)
+    private val bluetoothDisabledForWirelessCarPlay = AtomicBoolean(false)
     private val wirelessGeneration = AtomicInteger(0)
     private val wirelessConnectionProof = WirelessConnectionProof<AirPlaySession>()
 
@@ -426,6 +427,7 @@ class CarPlayController(
             closed = true
         }
         videoGate?.close()
+        restoreBluetoothAfterWirelessCarPlay()
         BydNavigationOutputs.endNow()
         BydNavigationOutputs.clearClusterStreamControl(::applyClusterUi)
         closeReceivers()
@@ -927,7 +929,15 @@ class CarPlayController(
 
             val adapter = bluetoothAdapter
                 ?: throw IOException("Bluetooth adapter is unavailable")
+            if (!adapter.isEnabled) {
+                runCatching { adapter.enable() }
+                val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(8)
+                while (!adapter.isEnabled && System.nanoTime() < deadline && !closed) {
+                    Thread.sleep(200)
+                }
+            }
             if (!adapter.isEnabled) throw IOException("Bluetooth is not enabled")
+            bluetoothDisabledForWirelessCarPlay.set(false)
             bringUpStep = "bluetooth-selection"
             val device = selectWirelessBluetoothDevice(adapter)
             wirelessBluetoothDevice = device
@@ -1226,9 +1236,11 @@ class CarPlayController(
                 ) {
                     return@Thread
                 }
-                debugLog("wireless handoff ready; closing Bluetooth bootstrap transport")
+                debugLog("wireless handoff ready; closing Bluetooth bootstrap transport; preserving MG Bluetooth audio")
                 closeBluetoothBootstrapTransport()
-                disconnectMg4A2dpAfterHandoff()
+                // Hybrid mode: the tunneled iAP2 session no longer needs RFCOMM, but the
+                // factory A2DP/AVRCP profiles must stay connected so the iPhone can send
+                // music through the car's stable Bluetooth audio path.
                 onStatus(CarPlayStatus.WirelessActive)
             },
             "xcertplay-wireless-handoff",
@@ -1869,12 +1881,41 @@ class CarPlayController(
      * AUTUS/SAIC Android 9 keeps the iPhone's classic A2DP/AVRCP profile active after the
      * wireless-CarPlay handoff.  As soon as CarPlay starts its media AudioTrack the factory
      * Bluetooth player then sends PAUSE to the same phone.  Real wireless CarPlay no longer
-     * needs A2DP after the type-130 Wi-Fi tunnel is authenticated, so release only that profile.
+     * needs the classic link after the type-130 Wi-Fi tunnel is authenticated.
      */
     private fun disconnectMg4A2dpAfterHandoff() {
         if (Build.VERSION.SDK_INT != Build.VERSION_CODES.P) return
         val adapter = bluetoothAdapter ?: return
         val device = wirelessBluetoothDevice ?: return
+        // The MG Bluetooth service often reconnects A2DP/AVRCP immediately after RFCOMM closes.
+        // Repeat across that reconnect window. CarPlay control and calls are already carried by
+        // the authenticated Wi-Fi tunnel, so the phone's classic ACL can safely be released.
+        listOf(0L, 2_000L, 5_000L).forEachIndexed { index, delayMillis ->
+            Thread({
+                if (delayMillis > 0) {
+                    try {
+                        Thread.sleep(delayMillis)
+                    } catch (_: InterruptedException) {
+                        return@Thread
+                    }
+                }
+                if (closed || phase != Phase.WIRELESS || !wirelessTunnelReady.get()) return@Thread
+                requestMg4A2dpDisconnect(adapter, device, index + 1)
+                requestMg4AvrcpDisconnect(adapter, device, index + 1)
+                disconnectMg4ClassicLink(device, index + 1)
+                disableMg4BluetoothRadio(adapter, index + 1)
+            }, "mg4-a2dp-release-${index + 1}").apply {
+                isDaemon = true
+                start()
+            }
+        }
+    }
+
+    private fun requestMg4A2dpDisconnect(
+        adapter: BluetoothAdapter,
+        device: BluetoothDevice,
+        attempt: Int,
+    ) {
         val listener = object : BluetoothProfile.ServiceListener {
             override fun onServiceConnected(profileId: Int, proxy: BluetoothProfile) {
                 try {
@@ -1885,10 +1926,10 @@ class CarPlayController(
                     val disconnected = disconnect.invoke(proxy, device) as? Boolean
                     debugLog(
                         "MG4 Android 9 A2DP release after CarPlay handoff " +
-                            "address=${device.address} result=$disconnected",
+                            "attempt=$attempt address=${device.address} result=$disconnected",
                     )
                 } catch (error: Throwable) {
-                    debugLog("MG4 Android 9 A2DP release failed", error)
+                    debugLog("MG4 Android 9 A2DP release failed attempt=$attempt", error)
                 } finally {
                     adapter.closeProfileProxy(profileId, proxy)
                 }
@@ -1897,8 +1938,66 @@ class CarPlayController(
             override fun onServiceDisconnected(profileId: Int) = Unit
         }
         if (!adapter.getProfileProxy(appContext, listener, BluetoothProfile.A2DP)) {
-            debugLog("MG4 Android 9 A2DP release unavailable")
+            debugLog("MG4 Android 9 A2DP release unavailable attempt=$attempt")
         }
+    }
+
+    @Suppress("PrivateApi")
+    private fun requestMg4AvrcpDisconnect(
+        adapter: BluetoothAdapter,
+        device: BluetoothDevice,
+        attempt: Int,
+    ) {
+        val listener = object : BluetoothProfile.ServiceListener {
+            override fun onServiceConnected(profileId: Int, proxy: BluetoothProfile) {
+                try {
+                    val controller = Class.forName("android.bluetooth.BluetoothAvrcpController")
+                    val disconnect = controller.getMethod("disconnect", BluetoothDevice::class.java)
+                    val disconnected = disconnect.invoke(proxy, device) as? Boolean
+                    debugLog("MG4 Android 9 AVRCP release attempt=$attempt result=$disconnected")
+                } catch (error: Throwable) {
+                    debugLog("MG4 Android 9 AVRCP release failed attempt=$attempt", error)
+                } finally {
+                    adapter.closeProfileProxy(profileId, proxy)
+                }
+            }
+
+            override fun onServiceDisconnected(profileId: Int) = Unit
+        }
+        if (!adapter.getProfileProxy(appContext, listener, BLUETOOTH_PROFILE_AVRCP_CONTROLLER)) {
+            debugLog("MG4 Android 9 AVRCP release unavailable attempt=$attempt")
+        }
+    }
+
+    @Suppress("PrivateApi")
+    private fun disconnectMg4ClassicLink(device: BluetoothDevice, attempt: Int) {
+        try {
+            val disconnect = BluetoothDevice::class.java.getMethod("disconnect")
+            val result = disconnect.invoke(device)
+            debugLog("MG4 Android 9 classic Bluetooth release attempt=$attempt result=$result")
+        } catch (error: Throwable) {
+            debugLog("MG4 Android 9 classic Bluetooth release failed attempt=$attempt", error)
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun disableMg4BluetoothRadio(adapter: BluetoothAdapter, attempt: Int) {
+        try {
+            val result = if (adapter.isEnabled) adapter.disable() else true
+            if (result) bluetoothDisabledForWirelessCarPlay.set(true)
+            debugLog("MG4 Android 9 Bluetooth radio disable attempt=$attempt result=$result")
+        } catch (error: Throwable) {
+            debugLog("MG4 Android 9 Bluetooth radio disable failed attempt=$attempt", error)
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun restoreBluetoothAfterWirelessCarPlay() {
+        if (!bluetoothDisabledForWirelessCarPlay.compareAndSet(true, false)) return
+        val adapter = bluetoothAdapter ?: return
+        runCatching { adapter.enable() }
+            .onSuccess { debugLog("MG4 Android 9 Bluetooth radio restore requested result=$it") }
+            .onFailure { debugLog("MG4 Android 9 Bluetooth radio restore failed", it) }
     }
 
     private fun <T : BluetoothProfile> connectedBluetoothDevices(
@@ -2184,6 +2283,7 @@ class CarPlayController(
         private const val DEVICE_AVAILABILITY_POLL_INTERVAL_MILLIS = 2_000L
         private const val WIRELESS_HANDOFF_TIMEOUT_MILLIS = 45_000L
         private const val RFCOMM_CONNECT_TIMEOUT_MILLIS = 15_000L
+        private const val BLUETOOTH_PROFILE_AVRCP_CONTROLLER = 12
         private const val MAXIMUM_REENUMERATION_ATTEMPTS = 2
         private const val EXECUTOR_CLOSE_TIMEOUT_MILLIS = 2_000L
         private const val ADAPTER_ADDRESS_PLACEHOLDER = "02:00:00:00:00:00"

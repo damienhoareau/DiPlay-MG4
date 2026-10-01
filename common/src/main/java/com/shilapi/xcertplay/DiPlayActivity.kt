@@ -1004,6 +1004,8 @@ class DiPlayActivity : ComponentActivity() {
             setupError != null -> getString(R.string.setup_needs_attention)
             CarPlayBackgroundSession.active -> getString(R.string.carplay_connected)
             running -> getString(R.string.connecting_to_your_iphone)
+            DiPlayPreferences.phoneAddress(this)?.let { DiPlayBluetooth.isConnected(this, it) } == false ->
+                getString(R.string.iphone_bluetooth_not_connected)
             DiPlayPreferences.phoneAddress(this) != null -> "${getString(R.string.status_ready_for_prefix)}${DiPlayPreferences.phoneName(this)}"
             else -> getString(R.string.ready_when_you_are)
         }

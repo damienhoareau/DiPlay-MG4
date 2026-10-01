@@ -13,4 +13,14 @@ internal object DiPlayBluetooth {
                 !it.startsWith("02:00:00:00:00:") && it != "00:00:00:00:00:00"
         }
     }
+
+    /** True/false when the Android firmware exposes the classic-link state; null otherwise. */
+    fun isConnected(context: Context, address: String): Boolean? = runCatching {
+        val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
+            ?: return@runCatching null
+        val device = adapter.bondedDevices.firstOrNull { it.address.equals(address, ignoreCase = true) }
+            ?: return@runCatching false
+        val method = device.javaClass.getMethod("isConnected")
+        method.invoke(device) as? Boolean
+    }.getOrNull()
 }
