@@ -5,11 +5,11 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 BT=${ANDROID_BUILD_TOOLS:-/Users/tcfdonmez/Android/Sdk/build-tools/35.0.0}
 KEYS=${MG4_PLATFORM_KEYS_DIR:?Set MG4_PLATFORM_KEYS_DIR to the directory containing platform.pk8 and platform.x509.pem}
 OUT="$ROOT/mobile/build/outputs/apk/debug/mobile-debug.apk"
-VERSION="0.2.9-mg4.24"
-ALIGNED="$ROOT/mobile/build/outputs/apk/debug/DiPlay-MG4-SWI69-v$VERSION-aligned.apk"
-SIGNED="$ROOT/mobile/build/outputs/apk/debug/DiPlay-MG4-SWI69-v$VERSION.apk"
+VERSION="0.2.9-mg4.25"
+ALIGNED="$ROOT/mobile/build/outputs/apk/debug/MG4CPlay-v$VERSION-aligned.apk"
+SIGNED="$ROOT/mobile/build/outputs/apk/debug/MG4CPlay-v$VERSION.apk"
 DELIVERY_DIR=$(CDPATH= cd -- "$ROOT/.." && pwd)
-DELIVERY_APK="$DELIVERY_DIR/DiPlay-MG4-SWI69-v$VERSION.apk"
+DELIVERY_APK="$DELIVERY_DIR/MG4CPlay-v$VERSION.apk"
 
 : "${DIPLAY_AUTH_ASSETS_DIR:?Set DIPLAY_AUTH_ASSETS_DIR to the directory containing offline-mfi/}"
 

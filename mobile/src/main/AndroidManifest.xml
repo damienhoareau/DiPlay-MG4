@@ -3,7 +3,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:sharedUserId="android.uid.system">
 
-    <!-- MG4 platform-signed build: lets DiPlay claim the iPhone before the stock AllGo host. -->
+    <!-- MG4 platform-signed build: lets MG4CPlay claim the iPhone before the stock AllGo host. -->
     <uses-permission android:name="android.permission.MANAGE_USB" tools:ignore="ProtectedPermissions" />
 
     <application

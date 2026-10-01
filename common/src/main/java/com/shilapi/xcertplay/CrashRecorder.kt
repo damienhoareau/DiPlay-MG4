@@ -24,7 +24,7 @@ object CrashRecorder {
             try {
                 val trace = StringWriter().also { error.printStackTrace(PrintWriter(it)) }.toString()
                 val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US).format(Date())
-                val report = "DiPlay crash\nTime: $timestamp\nThread: ${thread.name}\n" +
+                val report = "MG4CPlay crash\nTime: $timestamp\nThread: ${thread.name}\n" +
                     "Android: ${android.os.Build.VERSION.RELEASE} (SDK ${android.os.Build.VERSION.SDK_INT})\n" +
                     "Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}\n\n$trace"
                 appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

@@ -78,8 +78,8 @@ object AirPlayPersistence {
     private const val SAFE_AREA_KEY_PREFIX = "safe_area_"
     private const val CUSTOM_ICON_FILE = "airplay-icon.png"
 
-    const val DEFAULT_MANUFACTURER = "DiPlay"
-    const val DEFAULT_MODEL = "DiPlay"
+    const val DEFAULT_MANUFACTURER = "MG"
+    const val DEFAULT_MODEL = "MG4CPlay"
     const val DEFAULT_OEM_LABEL = "MG"
     const val DEFAULT_MFI_I2C_PATH = "/dev/i2c-1"
 
