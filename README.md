@@ -1,17 +1,20 @@
-# DiPlay
+# MG4 Wireless CarPlay
+
+Wireless CarPlay for the MG4 Android head unit, maintained by
+[@fatihdonmezdev](https://github.com/fatihdonmezdev).
 
 > This private fork targets the MG4 Comfort head unit running SWI69 / Android 9.
 > The MG integration reuses EVHardware's proven read-only SWI69 paths for battery,
 > range and the parked safety gate. Wireless CarPlay uses the car's existing hotspot
 > on Android 9; Wi-Fi Direct remains unavailable below Android 10.
 
-**CarPlay for compatible BYD Android head units.** Wired and wireless, with the familiar DiAuto interface. Independent app: `com.shihab.diplay`.
+**MG4-focused wireless CarPlay for Android head units.** The primary tested target is the
+MG4 Comfort running SWI69 / Android 9 on the AUTUS SAIC MT2712 head unit. Independent app:
+`com.shihab.diplay`.
 
-> **BYD support scope:** These projects focus on BYD cars. They may work on other brands, but other brands are unsupported and there are no plans to add support or fix brand-specific incompatibilities.
+> Other MG4 firmware versions may work, but SWI69 is the tested and supported target.
 
-[Download & website](https://shihabal3amri.github.io/DiPlay/) · [Release](https://github.com/shihabal3amri/DiPlay/releases/tag/v0.2.8) · [Report a problem](https://github.com/shihabal3amri/DiPlay/issues/new/choose)
-
-![DiPlay home](site/assets/home.png)
+[Releases](https://github.com/fatihdonmezdev/MG4-Wireless-Carplay/releases) · [Report a problem](https://github.com/fatihdonmezdev/MG4-Wireless-Carplay/issues/new)
 
 ## 0.2.8 — public preview
 

@@ -213,6 +213,7 @@ class CarPlayController(
     @Volatile private var bonjour: CarPlayBonjour? = null
     @Volatile private var bluetoothSocket: BluetoothSocket? = null
     @Volatile private var bluetoothStream: BluetoothRfcommDuplexStream? = null
+    @Volatile private var wirelessBluetoothDevice: BluetoothDevice? = null
     @Volatile private var wirelessTunnelChannel: Iap2Session? = null
     @Volatile private var wirelessIdentification: Iap2IdentificationConfig? = null
     @Volatile private var wirelessAirPlayEndpoint: Iap2WirelessCarPlayEndpoint? = null
@@ -929,6 +930,7 @@ class CarPlayController(
             if (!adapter.isEnabled) throw IOException("Bluetooth is not enabled")
             bringUpStep = "bluetooth-selection"
             val device = selectWirelessBluetoothDevice(adapter)
+            wirelessBluetoothDevice = device
             val hostBluetoothMac = accessoryBluetoothMac(adapter)
             debugLog(
                 "wireless selected Bluetooth target name=${device.name ?: "unknown"} " +
@@ -1226,6 +1228,7 @@ class CarPlayController(
                 }
                 debugLog("wireless handoff ready; closing Bluetooth bootstrap transport")
                 closeBluetoothBootstrapTransport()
+                disconnectMg4A2dpAfterHandoff()
                 onStatus(CarPlayStatus.WirelessActive)
             },
             "xcertplay-wireless-handoff",
@@ -1861,6 +1864,42 @@ class CarPlayController(
             addAll(connectedBluetoothDevices(adapter, BluetoothProfile.HEADSET, BluetoothHeadset::class.java))
             addAll(connectedBluetoothDevices(adapter, BluetoothProfile.A2DP, BluetoothA2dp::class.java))
         }
+
+    /**
+     * AUTUS/SAIC Android 9 keeps the iPhone's classic A2DP/AVRCP profile active after the
+     * wireless-CarPlay handoff.  As soon as CarPlay starts its media AudioTrack the factory
+     * Bluetooth player then sends PAUSE to the same phone.  Real wireless CarPlay no longer
+     * needs A2DP after the type-130 Wi-Fi tunnel is authenticated, so release only that profile.
+     */
+    private fun disconnectMg4A2dpAfterHandoff() {
+        if (Build.VERSION.SDK_INT != Build.VERSION_CODES.P) return
+        val adapter = bluetoothAdapter ?: return
+        val device = wirelessBluetoothDevice ?: return
+        val listener = object : BluetoothProfile.ServiceListener {
+            override fun onServiceConnected(profileId: Int, proxy: BluetoothProfile) {
+                try {
+                    val disconnect = BluetoothA2dp::class.java.getMethod(
+                        "disconnect",
+                        BluetoothDevice::class.java,
+                    )
+                    val disconnected = disconnect.invoke(proxy, device) as? Boolean
+                    debugLog(
+                        "MG4 Android 9 A2DP release after CarPlay handoff " +
+                            "address=${device.address} result=$disconnected",
+                    )
+                } catch (error: Throwable) {
+                    debugLog("MG4 Android 9 A2DP release failed", error)
+                } finally {
+                    adapter.closeProfileProxy(profileId, proxy)
+                }
+            }
+
+            override fun onServiceDisconnected(profileId: Int) = Unit
+        }
+        if (!adapter.getProfileProxy(appContext, listener, BluetoothProfile.A2DP)) {
+            debugLog("MG4 Android 9 A2DP release unavailable")
+        }
+    }
 
     private fun <T : BluetoothProfile> connectedBluetoothDevices(
         adapter: BluetoothAdapter,

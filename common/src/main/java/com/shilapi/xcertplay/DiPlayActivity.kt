@@ -178,6 +178,9 @@ class DiPlayActivity : ComponentActivity() {
             else { page = "home"; render() }
         }, LinearLayout.LayoutParams(dp(130), dp(56)))
         content.addView(header)
+        content.addView(label("fatihdonmezdev", 13, MUTED, true).apply {
+            setPadding(dp(48), 0, 0, 0)
+        })
         content.addView(space(24))
         when (page) {
             "connection" -> connectionSetup(content)

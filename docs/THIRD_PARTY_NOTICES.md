@@ -18,6 +18,12 @@ https://developer.apple.com/assets/elements/icons/carplay/carplay-96x96_2x.png
 
 CarPlay and the CarPlay icon are Apple Inc. marks/assets. This asset is not covered by the project's open-source code license. Its use here does not imply Apple approval or certification.
 
+## MG mark
+
+The MG mark shown to CarPlay identifies the intended vehicle integration. MG and its logo are
+trademarks of their respective owner. This independent project is not affiliated with or endorsed
+by MG Motor or SAIC Motor.
+
 ## Runtime dependencies
 
 - AndroidX and Jetpack Compose — Android Open Source Project; Apache License 2.0.

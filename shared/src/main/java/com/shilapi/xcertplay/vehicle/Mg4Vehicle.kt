@@ -5,6 +5,7 @@ import android.os.SystemClock
 import android.util.Log
 import com.evsuite.hardware.EVHardware
 import com.evsuite.hardware.FirmwareInfo
+import com.evsuite.hardware.saic.SaicVehicleCondition
 import com.shilapi.xcertplay.hud.BydOutputSettings
 import com.shilapi.xcertplay.transport.VehicleStatusProvider
 import com.shilapi.xcertplay.transport.VehicleStatusSnapshot
@@ -56,7 +57,14 @@ object Mg4Vehicle : VehicleStatusProvider {
     /** Fail closed: video remains disabled if the gear cannot be read. */
     fun parked(context: Context): Boolean? {
         if (!available(context)) return null
-        return runCatching { EVHardware.isVehicleInPark() }
+        return runCatching {
+            // On SWI69 CarStateClient may return its unset value (0).  The head unit's own
+            // video apps use vehiclecondition gear=1 for P, so prefer that direct signal.
+            SaicVehicleCondition.gearOrNull()
+                ?.takeIf { it in 1..4 }
+                ?.let { it == 1 }
+                ?: EVHardware.isVehicleInPark()
+        }
             .onFailure { Log.e(TAG, "Could not read MG4 gear", it) }
             .getOrNull()
     }
