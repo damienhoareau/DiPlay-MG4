@@ -2796,6 +2796,10 @@ class CarPlayHostActivity : ComponentActivity() {
             cluster = clusterDisplayConfig(),
             rightHandDrive = rightHandDrive,
             hevc = hevcEnabled,
+            // Screen-only hybrid mode: do not advertise a CarPlay audio output. This keeps
+            // media on the iPhone's existing MG factory Bluetooth/A2DP route while CarPlay
+            // continues to provide video, touch and media-control HID events.
+            disableAudioOutput = true,
             microphone = microphoneAvailable,
             manufacturer = normalizedManufacturer(),
             model = normalizedModel(),
