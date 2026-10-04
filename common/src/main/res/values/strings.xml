@@ -16,6 +16,9 @@
     <string name="hotspot_mode_p2p_desc">Alternative setup. Requires the car’s Wi-Fi switch on; a 2.4 GHz connection may stutter.</string>
     <string name="hotspot_details_off">Hotspot is off · Turn it on in car settings.</string>
     <string name="hotspot_details_saved">Details saved · Check that the car hotspot is on before connecting.</string>
+    <string name="start_car_hotspot">Start car hotspot</string>
+    <string name="hotspot_start_requested">Car hotspot start requested</string>
+    <string name="hotspot_start_failed">Could not start the car hotspot</string>
     <string name="permission_enabled_ready">Permission enabled · ready to use</string>
     <string name="permission_not_enabled">Permission not enabled yet</string>
     <string name="clipboard_usage_access">MG4CPlay Usage Access</string>
@@ -116,6 +119,17 @@
     <string name="byd_navigation">MG navigation</string>
     <string name="mg4_vehicle">MG4 vehicle integration</string>
     <string name="mg4_battery_for_the_iphone_description">Sends the SWI69 battery percentage and range to Apple Maps using the same read-only vehicle interface as EVABRPUploader. Reconnects CarPlay.</string>
+    <string name="abrp_live_telemetry">ABRP live telemetry</string>
+    <string name="abrp_live_telemetry_description">Uploads MG battery, range, power, speed and location while the CarPlay session is running.</string>
+    <string name="abrp_credentials">ABRP credentials</string>
+    <string name="abrp_credentials_description">Paste the user token from your ABRP account. The open-source telemetry API key is prefilled.</string>
+    <string name="abrp_credentials_configured">ABRP credentials · configured</string>
+    <string name="abrp_credentials_not_configured">ABRP credentials · setup required</string>
+    <string name="abrp_api_key">ABRP API key</string>
+    <string name="abrp_user_token">ABRP user token</string>
+    <string name="abrp_paste_token">Paste token from clipboard</string>
+    <string name="abrp_clipboard_empty">The clipboard does not contain text.</string>
+    <string name="abrp_credentials_required">API key and user token are required.</string>
     <string name="mg4_video_while_parked_description">Allows supported iPhone video only while the MG4 reports gear P. An unreadable gear keeps video disabled. Reconnects CarPlay.</string>
     <string name="cancel">Cancel</string>
     <string name="car_home">Car home</string>

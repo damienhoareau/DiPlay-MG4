@@ -141,7 +141,7 @@ class CarPlayHostActivity : ComponentActivity() {
             hardwareVersion = "1.0",
             carPlayUsbInterfaceNumber = 3,
             locationInformationEnabled = locationReportingEnabled,
-            vehicleStatusEnabled = com.shilapi.xcertplay.hud.BydOutputSettings.batteryToIphone(this),
+            vehicleStatusEnabled = com.shilapi.xcertplay.vehicle.VehicleIntegration.vehicleStatusEnabled(this),
             chargingConnectors = com.shilapi.xcertplay.hud.BydOutputSettings.chargingConnectors(this),
             vehicleSpeedEnabled = locationReportingEnabled && com.shilapi.xcertplay.hud.BydOutputSettings.wheelSpeedToIphone(this),
         ),
@@ -3184,7 +3184,7 @@ class CarPlayHostActivity : ComponentActivity() {
             savePairRecord = { record -> AirPlayPersistence.saveLockdownRecord(this, record) },
             clearPairRecord = { AirPlayPersistence.clearLockdownRecord(this) },
             locationProvider = locationProvider,
-            vehicleStatusProvider = if (com.shilapi.xcertplay.hud.BydOutputSettings.batteryToIphone(this)) {
+            vehicleStatusProvider = if (com.shilapi.xcertplay.vehicle.VehicleIntegration.vehicleStatusEnabled(this)) {
                 com.shilapi.xcertplay.vehicle.VehicleIntegration.batteryStatus(applicationContext)
             } else {
                 null

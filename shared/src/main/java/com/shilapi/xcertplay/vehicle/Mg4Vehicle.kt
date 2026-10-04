@@ -6,9 +6,11 @@ import android.util.Log
 import com.evsuite.hardware.EVHardware
 import com.evsuite.hardware.FirmwareInfo
 import com.evsuite.hardware.saic.SaicVehicleCondition
+import com.evsuite.hardware.telemetry.EnergyTelemetryReader
 import com.shilapi.xcertplay.hud.BydOutputSettings
 import com.shilapi.xcertplay.transport.VehicleStatusProvider
 import com.shilapi.xcertplay.transport.VehicleStatusSnapshot
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
@@ -19,12 +21,16 @@ object Mg4Vehicle : VehicleStatusProvider {
     private const val TAG = "DiPlay-MG4"
     private const val READ_MILLIS = 30_000L
     private const val STALE_MILLIS = 3 * 60_000L
+    private const val INITIAL_READ_TIMEOUT_MILLIS = 8_000L
+    private const val INITIAL_RETRY_MILLIS = 500L
 
     @Volatile private var app: Context? = null
     @Volatile private var latest: VehicleStatusSnapshot? = null
     @Volatile private var latestMillis = 0L
     @Volatile private var started = false
     @Volatile private var initialized = false
+    @Volatile private var reader: EnergyTelemetryReader? = null
+    private val firstReading = CountDownLatch(1)
     private val executor = Executors.newSingleThreadScheduledExecutor { runnable ->
         Thread(runnable, "diplay-mg4-vehicle").apply { isDaemon = true }
     }
@@ -45,18 +51,29 @@ object Mg4Vehicle : VehicleStatusProvider {
         started = true
         executor.execute {
             try {
-                EVHardware.init(context.applicationContext)
+                // Use exactly the same reader as EVABRPUploader. Besides the AAOS/VHAL
+                // fallbacks it connects SAIC's vehiclecharging service, which is the most
+                // reliable source of SOC and range on SWI69.
+                reader = EnergyTelemetryReader(context.applicationContext)
                 initialized = true
-                poll()
+                primeFirstReading()
                 executor.scheduleWithFixedDelay(::poll, READ_MILLIS, READ_MILLIS, TimeUnit.MILLISECONDS)
             } catch (error: Throwable) {
                 Log.e(TAG, "EVHardware initialization failed; disabling vehicle data", error)
+            } finally {
+                firstReading.countDown()
             }
         }
     }
 
-    override fun snapshot(): VehicleStatusSnapshot? =
-        latest?.takeIf { SystemClock.elapsedRealtime() - latestMillis <= STALE_MILLIS }
+    override fun snapshot(): VehicleStatusSnapshot? {
+        // Identification runs off the UI thread. Give the EVABRPUploader reader time to bind
+        // before iAP2 permanently decides whether this CarPlay connection is an EV session.
+        if (started && latest == null) {
+            runCatching { firstReading.await(INITIAL_READ_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS) }
+        }
+        return latest?.takeIf { SystemClock.elapsedRealtime() - latestMillis <= STALE_MILLIS }
+    }
 
     /** Fail closed: video remains disabled if the gear cannot be read. */
     fun parked(context: Context): Boolean? {
@@ -81,14 +98,24 @@ object Mg4Vehicle : VehicleStatusProvider {
         }
     }
 
+    private fun primeFirstReading() {
+        val deadline = SystemClock.elapsedRealtime() + INITIAL_READ_TIMEOUT_MILLIS
+        do {
+            pollSafely()
+            if (latest != null) return
+            Thread.sleep(INITIAL_RETRY_MILLIS)
+        } while (SystemClock.elapsedRealtime() < deadline)
+    }
+
     private fun pollSafely() {
         val context = app ?: return
         if (FirmwareInfo.getGeneration() != FirmwareInfo.Gen.SWI69) return
-        val percent = EVHardware.getVendorBatterySocPercent()?.toDouble() ?: return
-        val range = (EVHardware.getVendorRangeKm() ?: EVHardware.getStandardRangeKm()?.roundToInt()) ?: return
+        val vehicle = reader?.read() ?: return
+        val percent = vehicle.socPercent?.toDouble() ?: return
+        val range = vehicle.rangeKm?.roundToInt() ?: return
         val fraction = percent / 100.0
-        val currentKwh = EVHardware.getBatteryEnergyKwh()?.toDouble()
-        val capacityKwh = EVHardware.getBatteryCapacityKwh()?.toDouble()
+        val currentKwh = vehicle.batteryEnergyKwh?.toDouble()
+        val capacityKwh = vehicle.batteryCapacityKwh?.toDouble()
             ?: currentKwh?.takeIf { fraction > 0.0 }?.div(fraction)
         val maxRange = if (fraction > 0.0) (range / fraction).roundToInt() else range
         // iAP2 requires charge and capacity together. If AAOS does not expose Wh on this
@@ -102,7 +129,8 @@ object Mg4Vehicle : VehicleStatusProvider {
             currentChargeWh = (reportedCurrentKwh * 1000).roundToLong(),
             maxChargeWh = (reportedCapacityKwh * 1000).roundToLong(),
             maxRangeKm = maxRange,
-            charging = EVHardware.isChargePortConnected() == true,
+            charging = vehicle.chargePortConnected == true ||
+                (vehicle.batteryPowerKw?.let { it < -0.3f } == true),
         )
         latestMillis = SystemClock.elapsedRealtime()
         Log.i(TAG, "SWI69 battery ${percent.roundToInt()}% range ${range}km")

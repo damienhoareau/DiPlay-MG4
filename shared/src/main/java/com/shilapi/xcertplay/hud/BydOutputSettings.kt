@@ -35,6 +35,14 @@ object BydOutputSettings {
     fun setBatteryToIphone(context: Context, enabled: Boolean) =
         prefs(context).edit().putBoolean(KEY_BATTERY_TO_IPHONE, enabled).apply()
 
+    /** Enable EV routing on first use for vehicles with a native, read-only telemetry source. */
+    fun enableBatteryToIphoneByDefault(context: Context) {
+        val preferences = prefs(context)
+        if (!preferences.contains(KEY_BATTERY_TO_IPHONE)) {
+            preferences.edit().putBoolean(KEY_BATTERY_TO_IPHONE, true).apply()
+        }
+    }
+
     /** The charging inlets the iPhone is told about; applies on the next connection. */
     fun chargingConnectors(context: Context): EvChargingConnectors =
         prefs(context).getString(KEY_CHARGING_CONNECTORS, null)

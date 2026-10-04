@@ -38,6 +38,7 @@ import com.shilapi.xcertplay.airplay.CarPlayClusterDisplay
 import com.shilapi.xcertplay.hud.BydAdbAccess
 import com.shilapi.xcertplay.hud.BydOutputSettings
 import com.shilapi.xcertplay.host.R
+import com.shilapi.xcertplay.network.CarHotspotController
 import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
 import com.shilapi.xcertplay.transport.EvChargingConnectors
 import java.io.File
@@ -96,6 +97,7 @@ class DiPlayActivity : ComponentActivity() {
         CrashRecorder.install(this)
         languagePreferenceAtCreate = AppLocale.preference(this)
         com.shilapi.xcertplay.vehicle.VehicleIntegration.onAppOpened(applicationContext)
+        CarHotspotController.enable(applicationContext)
         WindowCompat.setDecorFitsSystemWindows(window, true)
         window.statusBarColor = BG; window.navigationBarColor = BG
         WindowInsetsControllerCompat(window, window.decorView).apply {
@@ -143,6 +145,10 @@ class DiPlayActivity : ComponentActivity() {
         super.onNewIntent(intent); setIntent(intent)
         page = intent.getStringExtra("page") ?: "home"; render()
         handleWirelessRecovery()
+        if (intent.getStringExtra("page") == null) {
+            if (CarPlayBackgroundSession.hasSession()) openConnectedCarPlayFromLauncher()
+            else handler.postDelayed({ openConnectedCarPlayFromLauncher() }, HOTSPOT_START_DELAY_MS)
+        }
     }
     override fun onSaveInstanceState(outState: Bundle) { outState.putString("page", page); outState.putBoolean("pending_car_hotspot", pendingCarHotspotSetup); super.onSaveInstanceState(outState) }
     override fun onConfigurationChanged(newConfig: Configuration) { super.onConfigurationChanged(newConfig); render() }
@@ -157,9 +163,14 @@ class DiPlayActivity : ComponentActivity() {
         if (!initialLaunch && (page == "home" || page == "settings" || page == "connection")) render()
         if (initialLaunch) {
             initialLaunch = false
-            if (setupError == null && !CarPlayBackgroundSession.hasSession() &&
-                DiPlayPreferences.autoConnect(this) && intent.getStringExtra("page") == null) {
-                handler.post { connect(AirPlayPersistence.loadWirelessEnabled(this)) }
+            if (setupError == null && intent.getStringExtra("page") == null) {
+                handler.postDelayed({
+                    if (!openConnectedCarPlayFromLauncher() &&
+                        DiPlayPreferences.autoConnect(this)
+                    ) {
+                        connect(AirPlayPersistence.loadWirelessEnabled(this))
+                    }
+                }, if (CarPlayBackgroundSession.hasSession()) 0 else HOTSPOT_START_DELAY_MS)
             }
         }
     }
@@ -214,6 +225,7 @@ class DiPlayActivity : ComponentActivity() {
             else -> getString(R.string.hotspot_hint_p2p)
         }
         card.addView(label(connectionHint, 15, MUTED).apply { setPadding(0, dp(14), 0, 0) })
+        card.addView(button(getString(R.string.start_car_hotspot), false) { triggerCarHotspot() }, matchButton(10, 56))
         if (carHotspotOff()) {
             card.addView(label(getString(R.string.msg_car_hotspot_off, AirPlayPersistence.loadManualHotspotSsid(this)), 15, WARNING).apply { setPadding(0, dp(14), 0, 0) })
             card.addView(button(getString(R.string.open_car_hotspot_settings), false) { openCarWifiSettings() }, matchButton(10, 56))
@@ -344,6 +356,30 @@ class DiPlayActivity : ComponentActivity() {
                 }, lowCharge.indexOf(BydOutputSettings.lowChargePercent(this)).coerceAtLeast(0), reconnects = false) {
                 BydOutputSettings.setLowChargePercent(this, lowCharge[it])
             }
+            toggle(card, getString(R.string.abrp_live_telemetry),
+                getString(R.string.abrp_live_telemetry_description),
+                com.shilapi.xcertplay.vehicle.AbrpSettings.enabled(this)) { enabled ->
+                if (enabled && !com.shilapi.xcertplay.vehicle.AbrpSettings.configured(this)) {
+                    showAbrpCredentialsDialog()
+                } else {
+                    com.shilapi.xcertplay.vehicle.AbrpSettings.setEnabled(this, enabled)
+                    if (enabled && CarPlayBackgroundSession.hasSession()) {
+                        com.shilapi.xcertplay.vehicle.AbrpUploader.start(this)
+                    } else if (!enabled) {
+                        com.shilapi.xcertplay.vehicle.AbrpUploader.stop()
+                    }
+                }
+            }
+            card.addView(button(
+                getString(
+                    if (com.shilapi.xcertplay.vehicle.AbrpSettings.configured(this)) {
+                        R.string.abrp_credentials_configured
+                    } else {
+                        R.string.abrp_credentials_not_configured
+                    },
+                ),
+                false,
+            ) { showAbrpCredentialsDialog() }, matchButton(10, 56))
             toggle(card, getString(R.string.video_while_parked),
                 getString(R.string.mg4_video_while_parked_description),
                 BydOutputSettings.videoWhileParked(this)) {
@@ -506,7 +542,14 @@ class DiPlayActivity : ComponentActivity() {
         }
     }
 
-    // The car hotspot link needs the hotspot on; DiPlay only checks it (turning it on needs ADB-only permission).
+    private fun triggerCarHotspot() {
+        val accepted = CarHotspotController.enable(applicationContext)
+        toast(getString(if (accepted) R.string.hotspot_start_requested else R.string.hotspot_start_failed))
+        handler.postDelayed({
+            if (!isFinishing && !isDestroyed && page == "home") render()
+        }, 1_500)
+    }
+
     private fun carHotspotOff(): Boolean =
         AirPlayPersistence.loadWirelessHotspotMode(this) == WirelessHotspotMode.MANUAL &&
             com.shilapi.xcertplay.network.CarHotspotStatus.isEnabled(this) == false
@@ -747,6 +790,74 @@ class DiPlayActivity : ComponentActivity() {
         dialog.show()
     }
 
+    private fun showAbrpCredentialsDialog() {
+        val fields = column().apply { setPadding(dp(24), dp(12), dp(24), dp(12)) }
+        fields.addView(label(getString(R.string.abrp_credentials_description), 15, MUTED))
+        val apiKey = EditText(this).apply {
+            hint = getString(R.string.abrp_api_key)
+            setText(com.shilapi.xcertplay.vehicle.AbrpSettings.apiKey(this@DiPlayActivity))
+            setSingleLine()
+        }
+        val token = EditText(this).apply {
+            hint = getString(R.string.abrp_user_token)
+            setText(com.shilapi.xcertplay.vehicle.AbrpSettings.token(this@DiPlayActivity))
+            setSingleLine()
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        fields.addView(apiKey)
+        fields.addView(token)
+        val error = label("", 14, WARNING)
+        fields.addView(button(getString(R.string.abrp_paste_token), false) {
+            val clipboard = getSystemService(ClipboardManager::class.java)
+            val pasted = clipboard.primaryClip
+                ?.takeIf { it.itemCount > 0 }
+                ?.getItemAt(0)
+                ?.coerceToText(this)
+                ?.toString()
+                ?.trim()
+                .orEmpty()
+            if (pasted.isEmpty()) {
+                error.text = getString(R.string.abrp_clipboard_empty)
+            } else {
+                token.setText(pasted)
+                token.setSelection(token.text.length)
+                error.text = ""
+            }
+        }, matchButton(8, 52))
+        fields.addView(CheckBox(this).apply {
+            text = getString(R.string.show_password)
+            setOnCheckedChangeListener { _, checked ->
+                token.transformationMethod = if (checked) null else android.text.method.PasswordTransformationMethod.getInstance()
+                token.setSelection(token.text.length)
+            }
+        })
+        fields.addView(error)
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(getString(R.string.abrp_credentials))
+            .setView(ScrollView(this).apply { addView(fields) })
+            .setPositiveButton(getString(R.string.save), null)
+            .setNegativeButton(getString(R.string.cancel), null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val keyValue = apiKey.text.toString().trim()
+                val tokenValue = token.text.toString().trim()
+                if (keyValue.isEmpty() || tokenValue.isEmpty()) {
+                    error.text = getString(R.string.abrp_credentials_required)
+                } else {
+                    com.shilapi.xcertplay.vehicle.AbrpSettings.save(this, keyValue, tokenValue, true)
+                    if (CarPlayBackgroundSession.hasSession()) {
+                        com.shilapi.xcertplay.vehicle.AbrpUploader.stop()
+                        com.shilapi.xcertplay.vehicle.AbrpUploader.start(this)
+                    }
+                    dialog.dismiss()
+                    render()
+                }
+            }
+        }
+        dialog.show()
+    }
+
     // "Left 20 %", "Centre · default", "Down 10 %": a signed step reads as a direction and a distance.
     private fun markerStepLabel(step: Int, negative: String, positive: String): String = when {
         step == 0 -> getString(R.string.marker_centre_default)
@@ -912,6 +1023,20 @@ class DiPlayActivity : ComponentActivity() {
     private fun openProjection() {
         startActivity(Intent(this, CarPlayHostActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
     }
+
+    /** Launcher opens skip the setup UI when an existing or Bluetooth-ready session is available. */
+    private fun openConnectedCarPlayFromLauncher(): Boolean {
+        if (setupError != null) return false
+        if (CarPlayBackgroundSession.hasSession()) {
+            openProjection()
+            return true
+        }
+        val phoneAddress = DiPlayPreferences.phoneAddress(this) ?: return false
+        if (DiPlayBluetooth.isConnected(this, phoneAddress) != true) return false
+        connect(wireless = true)
+        return true
+    }
+
     private fun choosePhone() {
         if (Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
             bluetoothPermission.launch(Manifest.permission.BLUETOOTH_CONNECT); return
@@ -1261,6 +1386,7 @@ class DiPlayActivity : ComponentActivity() {
     private fun space(height: Int) = View(this).apply { layoutParams = LinearLayout.LayoutParams(1, dp(height)) }
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
     companion object {
+        private const val HOTSPOT_START_DELAY_MS = 1_500L
         private val BG = Color.rgb(12, 17, 27)
         private val SURFACE = Color.rgb(21, 30, 44)
         private val BORDER = Color.rgb(42, 56, 75)
