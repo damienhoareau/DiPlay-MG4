@@ -1,81 +1,69 @@
-# Building the MG4 platform-signed APK
+# Building the MG4 Platform-Signed APK
 
-This document records the packaging flow used for the MG4CPlay APK distributed for the
-MG4 SWI69 head unit (Android 9). The build keeps the existing application identity so an
-installed MG4CPlay test build can be updated without clearing its settings.
+This document records the packaging and signing workflow used for the MG4 build targeting the MG4 SWI69 head unit (Android 9 / SAIC MT2712).
+
+Platform signing under `android.uid.system` is required for the application to access vehicle hardware APIs (e.g., CarPropertyManager, CAN telemetry) and USB host controls on the head unit.
 
 ## Requirements
 
-- JDK compatible with the included Gradle wrapper
-- Android SDK 37
-- Android NDK `28.2.13676358`
-- Android Build Tools `35.0.0` (or set `ANDROID_BUILD_TOOLS`)
-- Local standalone authentication assets
-- The matching MG4 platform signing certificate and private key
+- **JDK**: Java 17 or higher compatible with the included Gradle wrapper.
+- **Android SDK**: Android SDK 34/36/37 with Build Tools installed.
+- **Android NDK**: NDK `28.2.13676358` (or configured via `build.gradle.kts`).
+- **Platform Keys**: The MG4 platform signing files (`platform.pk8` and `platform.x509.pem`) located in `tools/` within the repository (or specified via `MG4_PLATFORM_KEYS_DIR`).
 
-The authentication and platform-signing files are private build inputs. Do not copy them
-into the repository or commit them.
+## Platform Keys Location
 
-The authentication directory must contain:
+By default, build scripts automatically locate the platform signing keys inside the repository's `tools/` folder:
 
 ```text
-offline-mfi/identity.pk8
-offline-mfi/certificate.p7b
+tools/platform.pk8
+tools/platform.x509.pem
+tools/platform.key
+tools/platform.p12
 ```
 
-The platform-key directory must contain:
+If your keys are stored in a custom directory, set the `MG4_PLATFORM_KEYS_DIR` environment variable to point to that directory.
 
-```text
-platform.pk8
-platform.x509.pem
-```
+## Build Commands
 
-## Versioning
-
-Keep these values synchronized before building:
-
-- `versionCode` and `versionName` in `mobile/build.gradle.kts`
-- `VERSION` in `scripts/build_mg4.sh`
-
-Android uses `versionCode` to decide whether an installed package can be updated.
-
-## Build command
+### macOS / Linux (bash/zsh)
 
 Run from the repository root:
 
-```sh
-ANDROID_HOME=/absolute/path/to/Android/Sdk \
-ANDROID_SDK_ROOT=/absolute/path/to/Android/Sdk \
-DIPLAY_AUTH_ASSETS_DIR=/absolute/path/to/runtime-assets \
-MG4_PLATFORM_KEYS_DIR=/absolute/path/to/mg4-platform-keys \
+```bash
+# Optional: specify custom paths if not using default SDK locations
+export ANDROID_HOME="$HOME/Library/Android/sdk" # or $HOME/Android/Sdk on Linux
+export MG4_PLATFORM_KEYS_DIR="./tools"          # Defaults to ./tools automatically
+
 ./scripts/build_mg4.sh
 ```
 
-`scripts/build_mg4.sh` performs the complete delivery workflow:
+### Windows (PowerShell)
 
-1. Runs `:mobile:assembleStandaloneDebug` with the explicit authentication assets.
-2. Aligns the APK with Android Build Tools `zipalign`.
-3. Signs it with `platform.pk8` and `platform.x509.pem`.
-4. Verifies the signature and prints the signing certificate with `apksigner`.
-5. Copies the final APK to the parent delivery directory as
-   `MG4CPlay-v<version>.apk`.
+Run from the repository root:
 
-The standalone task rejects missing authentication inputs. Ordinary source/CI builds do
-not bundle the private accessory identity.
+```powershell
+$env:MG4_PLATFORM_KEYS_DIR = "tools"
+powershell -File scripts\build_mg4.ps1
+```
+
+## Build Workflow Summary
+
+The build script (`scripts/build_mg4.sh` / `build_mg4.ps1`) performs the following steps:
+
+1. **Compiles the APK**: Builds the `githubCar` / `standalone` variant targeting system UID on Android 9.
+2. **Aligns Zip Structure**: Runs `zipalign -f 4` on the generated APK.
+3. **Platform Signs**: Signs the aligned APK using `apksigner` with `platform.pk8` and `platform.x509.pem`.
+4. **Verifies Signature**: Validates the output package signature with `apksigner verify`.
+5. **Delivers APK**: Copies the final signed APK to the parent directory.
 
 ## Verification
 
-The build script already runs signature verification. For an additional manual check:
+The build script automatically verifies the signature. To manually check the output package:
 
-```sh
-BUILD_TOOLS=/absolute/path/to/Android/Sdk/build-tools/35.0.0
-APK=/absolute/path/to/MG4CPlay-v0.2.9-mg4.46.apk
+```bash
+BUILD_TOOLS="${ANDROID_HOME}/build-tools/35.0.0"
+APK="../DiPlay-MG4-v0.2.9-mg4.46.apk"
 
 "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK"
-"$BUILD_TOOLS/aapt" dump badging "$APK" | head -n 2
-shasum -a 256 "$APK"
 ```
-
-For the MG4 platform build, `apksigner` must report the expected platform certificate.
-Never distribute an APK if its certificate differs from the installed build that it is
-intended to update.
