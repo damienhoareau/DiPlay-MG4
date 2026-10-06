@@ -118,7 +118,7 @@
     <string name="bluetooth_settings">Bluetooth settings</string>
     <string name="byd_navigation">MG navigation</string>
     <string name="mg4_vehicle">MG4 vehicle integration</string>
-    <string name="mg4_battery_for_the_iphone_description">Sends the SWI69 battery percentage and range to Apple Maps using the same read-only vehicle interface as EVABRPUploader. Reconnects CarPlay.</string>
+    <string name="mg4_battery_for_the_iphone_description">Sends the MG battery percentage and range to Apple Maps using the same read-only vehicle interface as EVABRPUploader. Reconnects CarPlay.</string>
     <string name="abrp_live_telemetry">ABRP live telemetry</string>
     <string name="abrp_live_telemetry_description">Uploads MG battery, range, power, speed and location while the CarPlay session is running.</string>
     <string name="abrp_credentials">ABRP credentials</string>

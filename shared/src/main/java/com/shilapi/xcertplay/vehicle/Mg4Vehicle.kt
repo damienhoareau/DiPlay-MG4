@@ -16,7 +16,7 @@ import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
-/** Read-only SWI69 bridge. All values come from the same EVHardware paths used by EVABRPUploader. */
+/** Read-only MG firmware bridge. All values come from the EVHardware paths used by EVABRPUploader. */
 object Mg4Vehicle : VehicleStatusProvider {
     private const val TAG = "DiPlay-MG4"
     private const val READ_MILLIS = 30_000L
@@ -36,7 +36,7 @@ object Mg4Vehicle : VehicleStatusProvider {
     }
 
     fun available(context: Context): Boolean {
-        return runCatching { FirmwareInfo.getGeneration() == FirmwareInfo.Gen.SWI69 }
+        return runCatching { FirmwareInfo.isDetectedGenerationSupported() }
             .onFailure { Log.e(TAG, "Could not detect MG4 firmware", it) }
             .getOrDefault(false)
     }
@@ -53,7 +53,7 @@ object Mg4Vehicle : VehicleStatusProvider {
             try {
                 // Use exactly the same reader as EVABRPUploader. Besides the AAOS/VHAL
                 // fallbacks it connects SAIC's vehiclecharging service, which is the most
-                // reliable source of SOC and range on SWI69.
+                // reliable source of SOC and range across supported MG firmware generations.
                 reader = EnergyTelemetryReader(context.applicationContext)
                 initialized = true
                 primeFirstReading()
@@ -79,7 +79,7 @@ object Mg4Vehicle : VehicleStatusProvider {
     fun parked(context: Context): Boolean? {
         if (!available(context)) return null
         return runCatching {
-            // On SWI69 CarStateClient may return its unset value (0).  The head unit's own
+            // On some MG firmware CarStateClient may return its unset value (0). The head unit's own
             // video apps use vehiclecondition gear=1 for P, so prefer that direct signal.
             SaicVehicleCondition.gearOrNull()
                 ?.takeIf { it in 1..4 }
@@ -109,7 +109,7 @@ object Mg4Vehicle : VehicleStatusProvider {
 
     private fun pollSafely() {
         val context = app ?: return
-        if (FirmwareInfo.getGeneration() != FirmwareInfo.Gen.SWI69) return
+        if (!FirmwareInfo.isDetectedGenerationSupported()) return
         val vehicle = reader?.read() ?: return
         val percent = vehicle.socPercent?.toDouble() ?: return
         val range = vehicle.rangeKm?.roundToInt() ?: return
@@ -133,6 +133,9 @@ object Mg4Vehicle : VehicleStatusProvider {
                 (vehicle.batteryPowerKw?.let { it < -0.3f } == true),
         )
         latestMillis = SystemClock.elapsedRealtime()
-        Log.i(TAG, "SWI69 battery ${percent.roundToInt()}% range ${range}km")
+        Log.i(
+            TAG,
+            "${FirmwareInfo.getDetectedString()} battery ${percent.roundToInt()}% range ${range}km",
+        )
     }
 }

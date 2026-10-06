@@ -20,7 +20,7 @@ object VehicleIntegration {
     fun onAppOpened(context: Context) {
         runCatching {
             if (isMg4(context)) {
-                // SWI69 exposes battery and range without the BYD-only ADB bridge. Advertise the
+                // Supported MG firmware exposes battery and range without the BYD-only ADB bridge. Advertise the
                 // MG4 as an EV by default so Apple Maps can request live vehicle-status updates.
                 com.shilapi.xcertplay.hud.BydOutputSettings.enableBatteryToIphoneByDefault(context)
                 Mg4Vehicle.start(context)
