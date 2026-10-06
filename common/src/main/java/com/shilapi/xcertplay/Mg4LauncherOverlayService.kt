@@ -13,6 +13,18 @@ import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 
+internal object Mg4LauncherOverlaySupport {
+    fun isDetectedSwi69(): Boolean = readSystemProperty("ro.build.mt2712.version")
+        .orEmpty()
+        .startsWith("SWI69")
+
+    private fun readSystemProperty(key: String): String? = runCatching {
+        val properties = Class.forName("android.os.SystemProperties")
+        val get = properties.getMethod("get", String::class.java, String::class.java)
+        (get.invoke(null, key, "") as? String)?.takeIf(String::isNotBlank)
+    }.getOrNull()
+}
+
 /**
  * Replaces the click action of the stock MG4 launcher's Apple CarPlay card.
  *
@@ -41,7 +53,7 @@ class Mg4LauncherOverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        if (Process.myUid() != Process.SYSTEM_UID) {
+        if (Process.myUid() != Process.SYSTEM_UID || !Mg4LauncherOverlaySupport.isDetectedSwi69()) {
             stopSelf()
             return
         }
@@ -101,5 +113,6 @@ class Mg4LauncherOverlayService : Service() {
         const val POLL_INTERVAL_MS = 400L
         const val TOUCH_WIDTH = 410
         const val TOUCH_HEIGHT = 298
+
     }
 }
