@@ -4,6 +4,26 @@ This document records the packaging and signing workflow used for the MG4 build 
 
 Platform signing under `android.uid.system` is required for the application to access vehicle hardware APIs (e.g., CarPropertyManager, CAN telemetry) and USB host controls on the head unit.
 
+## Stock launcher CarPlay shortcut
+
+The MG4 mobile build contains `Mg4LauncherOverlayService`. After the head unit
+boots, the existing `BootReceiver` starts this service independently of the user's
+CarPlay auto-start preference.
+
+While `com.saicmotor.launcher` is visible, the service places a transparent touch
+target over only the Apple CarPlay half of the stock 1920x720 launcher card. It
+draws no replacement UI, so the icon, label, divider and spacing remain the stock
+launcher's pixels. Pressing that area opens DiPlay; the Android Auto half keeps its
+original behavior. The touch target is removed whenever another app is in front.
+
+This functionality is bundled into the platform-signed DiPlay APK. The former
+standalone `com.fatih.mg4carplaywidget` package is not required and should be
+uninstalled after updating DiPlay:
+
+```bash
+adb uninstall com.fatih.mg4carplaywidget
+```
+
 ## Requirements
 
 - **JDK**: Java 17 or higher compatible with the included Gradle wrapper.
