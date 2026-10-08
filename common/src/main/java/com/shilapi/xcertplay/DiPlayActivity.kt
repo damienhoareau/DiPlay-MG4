@@ -184,6 +184,10 @@ class DiPlayActivity : ComponentActivity() {
         val header = row().apply { gravity = Gravity.CENTER_VERTICAL }
         header.addView(ImageView(this).apply { setImageResource(R.drawable.ic_carplay); contentDescription = getString(R.string.carplay) }, LinearLayout.LayoutParams(dp(36), dp(36)))
         header.addView(label(getString(R.string.diplay), 26, TEXT, true).apply { setPadding(dp(12), 0, 0, 0) }, LinearLayout.LayoutParams(0, dp(56), 1f))
+        if (page == "home") header.addView(button("↻", false) { checkForOta() }.apply {
+            textSize = 28f
+            contentDescription = getString(R.string.ota_check)
+        }, LinearLayout.LayoutParams(dp(64), dp(56)).apply { marginEnd = dp(10) })
         header.addView(button(if (page == "home") getString(R.string.car_home) else getString(R.string.back), false) {
             if (page == "home") startActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME))
             else { page = "home"; render() }
@@ -570,6 +574,26 @@ class DiPlayActivity : ComponentActivity() {
         }
         section(content, getString(R.string.made_possible_by_open_source)) { card ->
             card.addView(label(getString(R.string.receiver_based_on_xcertplay_licensed_under_gpl_3_0_diplay), 16, MUTED))
+        }
+    }
+
+    private fun checkForOta() {
+        toast(getString(R.string.ota_checking))
+        OtaUpdater.check(this) { result ->
+            result.fold(
+                onSuccess = { release ->
+                    if (release == null) toast(getString(R.string.ota_up_to_date))
+                    else AlertDialog.Builder(this)
+                        .setTitle(getString(R.string.ota_title))
+                        .setMessage(getString(R.string.ota_download_prompt, release.version))
+                        .setPositiveButton(getString(R.string.ota_download)) { _, _ ->
+                            OtaUpdater.downloadAndInstall(this, release) { toast(it) }
+                        }
+                        .setNegativeButton(getString(R.string.cancel), null)
+                        .show()
+                },
+                onFailure = { toast(getString(R.string.ota_failed, it.javaClass.simpleName)) },
+            )
         }
     }
 
