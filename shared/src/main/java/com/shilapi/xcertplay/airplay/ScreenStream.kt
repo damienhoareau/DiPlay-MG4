@@ -7,6 +7,7 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
@@ -33,7 +34,15 @@ class ScreenStream(private val key: ByteArray, private val onDiagnostic: (String
     private var server: ServerSocket? = null
     private var socket: Socket? = null
     private var thread: Thread? = null
+    private var processorThread: Thread? = null
     @Volatile private var listener: Listener = object : Listener {}
+
+    private sealed interface ReceivedMessage {
+        data class Payload(val header: ByteArray, val body: ByteArray, val counter: Long) : ReceivedMessage
+        data class End(val cause: Throwable?) : ReceivedMessage
+    }
+
+    private val received = ArrayBlockingQueue<ReceivedMessage>(RECEIVE_QUEUE_MESSAGES)
 
     fun listen(listener: Listener): Int {
         this.listener = listener
@@ -50,6 +59,7 @@ class ScreenStream(private val key: ByteArray, private val onDiagnostic: (String
         safeClose(socket)
         safeClose(server)
         thread?.interrupt()
+        processorThread?.interrupt()
     }
 
     private fun accept(bound: ServerSocket) {
@@ -66,6 +76,15 @@ class ScreenStream(private val key: ByteArray, private val onDiagnostic: (String
         var failure: Throwable? = null
         val stats = StreamReceiveStats("video", onDiagnostic)
         try {
+            runCatching { sock.receiveBufferSize = VIDEO_RECEIVE_BUFFER_BYTES }
+            onDiagnostic(
+                "Video TCP receive buffer requested=$VIDEO_RECEIVE_BUFFER_BYTES " +
+                    "actual=${runCatching { sock.receiveBufferSize }.getOrDefault(0)}",
+            )
+            processorThread = Thread({ processMessages() }, "airplay-screen-process").apply {
+                isDaemon = true
+                start()
+            }
             val input = sock.getInputStream()
             while (!closed.get()) {
                 stats.reading()
@@ -74,25 +93,45 @@ class ScreenStream(private val key: ByteArray, private val onDiagnostic: (String
                 if (bodySize > MAX_BODY) break
                 val body = readFully(input, bodySize) ?: break
                 stats.received(HEADER_LEN + bodySize)
-                onMessage(header, body)
+                val counter = if ((header[OPCODE_OFFSET].toInt() and 0xff) == OP_VIDEO_FRAME) {
+                    frameCounter.getAndIncrement()
+                } else {
+                    frameCounter.get()
+                }
+                received.put(ReceivedMessage.Payload(header, body, counter))
                 stats.processed()
             }
         } catch (error: Exception) {
             failure = error
         } finally {
             stats.flush(ended = true)
+            if (!closed.get()) runCatching { received.put(ReceivedMessage.End(failure)) }
             if (socket === sock) socket = null
             safeClose(sock)
-            if (!closed.get()) listener.onClosed(failure)
         }
     }
 
-    private fun onMessage(header: ByteArray, body: ByteArray) {
+    private fun processMessages() {
+        try {
+            while (!closed.get()) {
+                when (val message = try { received.take() } catch (_: InterruptedException) { return }) {
+                    is ReceivedMessage.Payload -> onMessage(message.header, message.body, message.counter)
+                    is ReceivedMessage.End -> {
+                        if (!closed.get()) listener.onClosed(message.cause)
+                        return
+                    }
+                }
+            }
+        } catch (error: Throwable) {
+            if (!closed.get()) listener.onClosed(error)
+        }
+    }
+
+    private fun onMessage(header: ByteArray, body: ByteArray, counter: Long) {
         when (header[OPCODE_OFFSET].toInt() and 0xff) {
             OP_VIDEO_FRAME -> {
                 val payload = if (body.size >= ScreenCodec.TAG_SIZE) {
-                    ScreenCodec.decryptFrame(key, frameCounter.get(), header, body)
-                        .also { frameCounter.incrementAndGet() }
+                    ScreenCodec.decryptFrame(key, counter, header, body)
                 } else {
                     body
                 }
@@ -133,6 +172,8 @@ class ScreenStream(private val key: ByteArray, private val onDiagnostic: (String
         const val OP_VIDEO_FRAME = 0
         const val OP_VIDEO_CONFIG = 1
         const val MAX_BODY = 8 * 1024 * 1024
+        const val RECEIVE_QUEUE_MESSAGES = 120
+        const val VIDEO_RECEIVE_BUFFER_BYTES = 4 * 1024 * 1024
     }
 }
 
