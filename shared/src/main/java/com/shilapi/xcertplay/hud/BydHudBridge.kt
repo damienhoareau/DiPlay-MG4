@@ -35,6 +35,7 @@ internal object BydHudBridge {
     private var context: Context? = null
     private var binder: IBinder? = null
     private var binding = false
+    private var serviceUnavailable = false
     private var started = false
     private var senderStarted = false
     private var guidanceSentLogged = false
@@ -161,12 +162,17 @@ internal object BydHudBridge {
 
     private fun bindLocked() {
         val appContext = context ?: return
-        if (binder != null || binding) return
+        if (binder != null || binding || serviceUnavailable) return
         try {
             // The gateway's onUnbind requires a MIME type; a typeless bind crashes the whole SOME/IP process.
             val intent = Intent(SOMEIP_ACTION).apply {
                 setClassName(SOMEIP_PACKAGE, SOMEIP_CLASS)
                 type = appContext.packageName
+            }
+            if (appContext.packageManager.resolveService(intent, 0) == null) {
+                serviceUnavailable = true
+                Log.i(TAG, "SOME/IP HUD service unavailable; binding disabled")
+                return
             }
             binding = appContext.bindService(intent, connection, Context.BIND_AUTO_CREATE)
             Log.i(TAG, "bindService=$binding")

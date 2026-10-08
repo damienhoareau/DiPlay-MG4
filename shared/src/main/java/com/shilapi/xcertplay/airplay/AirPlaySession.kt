@@ -445,7 +445,9 @@ class AirPlaySession(
     }
 
     private fun debugLog(message: String, uiVisible: Boolean = true) {
-        Log.i(TAG, message)
+        // Feedback keepalives and HID commands are intentionally hidden from the UI. They can run
+        // many times per second while interacting with CarPlay, so do not mirror them to logcat.
+        if (uiVisible) Log.i(TAG, message)
         if (!uiVisible) return
         try {
             listener.onDebugLog(message)
