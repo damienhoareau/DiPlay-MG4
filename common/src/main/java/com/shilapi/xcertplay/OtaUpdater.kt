@@ -12,6 +12,8 @@ import android.net.Uri
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.os.Process
+import android.util.Log
 import android.widget.Toast
 import org.json.JSONArray
 import java.net.HttpURLConnection
@@ -20,6 +22,7 @@ import java.security.MessageDigest
 import java.util.concurrent.Executors
 
 internal object OtaUpdater {
+    private const val TAG = "DiPlay_OTA"
     private const val RELEASES = "https://api.github.com/repos/fatihdonmezdev/MG4-Wireless-Carplay/releases?per_page=20"
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
@@ -118,9 +121,47 @@ internal object OtaUpdater {
     }
 
     private fun install(context: Context, apk: java.io.File) {
+        // MG4 head unit: the OEM PackageManager refuses every session-based install with
+        // "Not allowed to install non-system apps on internal storage" — even under
+        // android.uid.system and even for an app already living in /data/app. The only
+        // working path is `pm install -f`, where -f ("install on internal flash") pins
+        // the volume and bypasses the OEM check in PackageHelper.resolveInstallVolume.
+        // Session install stays as the fallback for non-system (phone) builds.
+        if (Process.myUid() == Process.SYSTEM_UID) {
+            try {
+                installWithPm(apk)
+                Log.i(TAG, "pm install ok: ${apk.absolutePath} size=${apk.length()}")
+                apk.delete()
+                main.post { Toast.makeText(context, "MG4CPlay updated", Toast.LENGTH_LONG).show() }
+                return
+            } catch (t: Throwable) {
+                Log.w(TAG, "pm install failed, trying PackageInstaller session: ${t.message}")
+            }
+        }
+        installWithSession(context, apk)
+    }
+
+    private fun installWithPm(apk: java.io.File) {
+        // -r replace, -f force internal flash (bypasses MG4 volume policy),
+        // -d allow downgrade (test builds), -t allow test packages.
+        val process = ProcessBuilder("pm", "install", "-r", "-f", "-d", "-t", apk.absolutePath)
+            .redirectErrorStream(true).start()
+        val output = process.inputStream.bufferedReader().use { it.readText().trim() }
+        val code = process.waitFor()
+        Log.i(TAG, "pm install exit=$code output=$output")
+        if (code != 0 || !output.lowercase().contains("success")) {
+            throw IllegalStateException(if (output.isEmpty()) "pm install exit $code" else output)
+        }
+    }
+
+    private fun installWithSession(context: Context, apk: java.io.File) {
         val installer = context.packageManager.packageInstaller
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
-            .apply { setAppPackageName(context.packageName) }
+            .apply {
+                setAppPackageName(context.packageName)
+                // PackageManager.INSTALL_LOCATION_INTERNAL_ONLY (=1) is not in the public SDK.
+                setInstallLocation(1)
+            }
         val sessionId = installer.createSession(params)
         installer.openSession(sessionId).use { session ->
             apk.inputStream().use { input -> session.openWrite("MG4CPlay.apk", 0, apk.length()).use { out -> input.copyTo(out); session.fsync(out) } }
