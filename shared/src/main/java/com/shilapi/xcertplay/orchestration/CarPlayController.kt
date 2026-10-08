@@ -73,6 +73,7 @@ import com.shilapi.xcertplay.transport.LockdownPairingClient
 import com.shilapi.xcertplay.transport.LockdownPairRecord
 import com.shilapi.xcertplay.transport.NcmFunctionDiscovery
 import com.shilapi.xcertplay.transport.NcmUsbBridge
+import com.shilapi.xcertplay.vehicle.VehicleIntegration
 import java.io.Closeable
 import java.io.IOException
 import java.net.InetAddress
@@ -147,12 +148,16 @@ class CarPlayController(
     private val locationProvider: Iap2LocationProvider? = null,
     private val vehicleStatusProvider: com.shilapi.xcertplay.transport.VehicleStatusProvider? = null,
 ) : Closeable {
+    private val bydOutputsEnabled = !VehicleIntegration.isMg4(context.applicationContext)
+
     init {
         require(!config.locationReportingEnabled || locationProvider != null) {
             "A location provider is required when location reporting is enabled"
         }
-        BydNavigationOutputs.start(context.applicationContext)
-        BydNavigationOutputs.setClusterStreamControl(::applyClusterUi)
+        if (bydOutputsEnabled) {
+            BydNavigationOutputs.start(context.applicationContext)
+            BydNavigationOutputs.setClusterStreamControl(::applyClusterUi)
+        }
     }
 
     private enum class Phase { IDLE, MFI, WIRELESS, IPHONE, REENUMERATION, DATAPATHS, CONTROL }
@@ -248,7 +253,7 @@ class CarPlayController(
     private val sessionListener = object : AirPlaySessionListener {
         override fun onSessionActive(session: AirPlaySession) {
             if (activeSession !== session) {
-                BydNavigationOutputs.start(appContext)
+                if (bydOutputsEnabled) BydNavigationOutputs.start(appContext)
                 // The gear may have changed since /info.
                 if (videoListener != null) session.setVideoPlaybackAllowed(VideoInCar.allowed)
             }
@@ -263,7 +268,7 @@ class CarPlayController(
         override fun onSessionEnded(session: AirPlaySession) {
             if (activeSession === session) {
                 activeSession = null
-                BydNavigationOutputs.endNow()
+                if (bydOutputsEnabled) BydNavigationOutputs.endNow()
                 videoListener?.onVideoSessionEnded()
                 synchronized(playbackStatus) { playbackStatus.clear() }?.let { playing -> playbackListener?.invoke(playing) }
             }
@@ -428,8 +433,10 @@ class CarPlayController(
         }
         videoGate?.close()
         restoreBluetoothAfterWirelessCarPlay()
-        BydNavigationOutputs.endNow()
-        BydNavigationOutputs.clearClusterStreamControl(::applyClusterUi)
+        if (bydOutputsEnabled) {
+            BydNavigationOutputs.endNow()
+            BydNavigationOutputs.clearClusterStreamControl(::applyClusterUi)
+        }
         closeReceivers()
         availabilityPollGeneration.incrementAndGet()
         wirelessGeneration.incrementAndGet()
@@ -502,7 +509,7 @@ class CarPlayController(
 
     // HUD (SOME/IP) and cluster (AMap broadcast) keep separate state so one failing cannot stall the other.
     private fun onRouteFrame(frame: com.shilapi.xcertplay.iap2.wire.Iap2Frame) {
-        BydNavigationOutputs.onFrame(frame)
+        if (bydOutputsEnabled) BydNavigationOutputs.onFrame(frame)
         synchronized(playbackStatus) { playbackStatus.accept(frame) }?.let { playing -> playbackListener?.invoke(playing) }
     }
 

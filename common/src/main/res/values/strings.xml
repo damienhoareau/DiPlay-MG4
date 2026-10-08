@@ -479,4 +479,13 @@
     <string name="video_pause">Pause</string>
     <string name="video_cannot_play">This video can\'t play on the car screen. Protected video, such as Apple TV+, needs a licensed receiver.</string>
     <string name="carplay_reconnect_limit_reached">Automatic reconnect stopped. Tap reconnect to try again.</string>
+    <string name="ota_title">OTA update</string>
+    <string name="ota_not_checked">Update not checked yet</string>
+    <string name="ota_check">Check for updates</string>
+    <string name="ota_checking">Checking for updates…</string>
+    <string name="ota_up_to_date">MG4CPlay is up to date</string>
+    <string name="ota_available">Update available: %1$s</string>
+    <string name="ota_download_prompt">Download and install MG4CPlay %1$s? The APK signature and SHA-256 will be verified first.</string>
+    <string name="ota_download">Download update</string>
+    <string name="ota_failed">Update check failed: %1$s</string>
 </resources>

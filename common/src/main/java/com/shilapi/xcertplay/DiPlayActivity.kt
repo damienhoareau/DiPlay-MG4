@@ -537,6 +537,37 @@ class DiPlayActivity : ComponentActivity() {
         section(content, "${getString(R.string.about_public_preview_prefix)}${version()}") { card ->
             card.addView(label(getString(R.string.an_independent_carplay_receiver_for_android_head_units_wir), 17, TEXT))
         }
+        section(content, getString(R.string.ota_title)) { card ->
+            val otaStatus = label(getString(R.string.ota_not_checked), 15, MUTED)
+            val otaButton = button(getString(R.string.ota_check), false) { }
+            otaButton.setOnClickListener {
+                otaButton.isEnabled = false
+                otaStatus.text = getString(R.string.ota_checking)
+                OtaUpdater.check(this) { result ->
+                    otaButton.isEnabled = true
+                    result.fold(
+                        onSuccess = { release ->
+                            if (release == null) {
+                                otaStatus.text = getString(R.string.ota_up_to_date)
+                            } else {
+                                otaStatus.text = getString(R.string.ota_available, release.version)
+                                AlertDialog.Builder(this)
+                                    .setTitle(getString(R.string.ota_title))
+                                    .setMessage(getString(R.string.ota_download_prompt, release.version))
+                                    .setPositiveButton(getString(R.string.ota_download)) { _, _ ->
+                                        OtaUpdater.downloadAndInstall(this, release) { message -> otaStatus.text = message }
+                                    }
+                                    .setNegativeButton(getString(R.string.cancel), null)
+                                    .show()
+                            }
+                        },
+                        onFailure = { otaStatus.text = getString(R.string.ota_failed, it.javaClass.simpleName) },
+                    )
+                }
+            }
+            card.addView(otaStatus)
+            card.addView(otaButton, matchButton(10, 60))
+        }
         section(content, getString(R.string.made_possible_by_open_source)) { card ->
             card.addView(label(getString(R.string.receiver_based_on_xcertplay_licensed_under_gpl_3_0_diplay), 16, MUTED))
         }
