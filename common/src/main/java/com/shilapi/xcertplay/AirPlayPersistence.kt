@@ -35,7 +35,6 @@ object AirPlayPersistence {
     private const val KEY_LOCKDOWN_ROOT_PRIVATE = "lockdown_root_private"
     private const val KEY_LOCKDOWN_ROOT_CERT = "lockdown_root_cert"
     private const val KEY_DISPLAY_SCALE_TENTHS = "display_scale_tenths"
-    private const val KEY_NATIVE_RESOLUTION_MIGRATED = "native_resolution_migrated_mg47"
     private const val KEY_UI_SCALE_PERCENT = "ui_scale_percent"
     private const val KEY_HEVC_ENABLED = "hevc_enabled"
     private const val KEY_HEVC_SOFTWARE_DECODER = "hevc_software_decoder"
@@ -86,15 +85,6 @@ object AirPlayPersistence {
 
     fun loadDisplayScaleTenths(context: Context): Int {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        // The MG performance experiment temporarily saved 0.8x. Restore native resolution once
-        // for existing installations; choices made after this migration remain user-controlled.
-        if (!prefs.getBoolean(KEY_NATIVE_RESOLUTION_MIGRATED, false)) {
-            prefs.edit()
-                .putInt(KEY_DISPLAY_SCALE_TENTHS, CarPlayDisplayScale.DEFAULT_TENTHS)
-                .putBoolean(KEY_NATIVE_RESOLUTION_MIGRATED, true)
-                .commit()
-            return CarPlayDisplayScale.DEFAULT_TENTHS
-        }
         return CarPlayDisplayScale.sanitize(
             prefs.getInt(KEY_DISPLAY_SCALE_TENTHS, CarPlayDisplayScale.DEFAULT_TENTHS),
         )
