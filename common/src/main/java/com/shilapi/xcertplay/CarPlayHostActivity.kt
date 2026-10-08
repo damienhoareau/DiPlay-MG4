@@ -3298,6 +3298,12 @@ class CarPlayHostActivity : ComponentActivity() {
         if (!CarPlayBackgroundSession.isOwner(this)) return
         if (shuttingDown.get() || menuOpen || handshakeResetInProgress) return
         if (reconnectScheduled) return
+        if (activeAirPlaySession == null && reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+            cancelStartupWatchdog()
+            setConnectionStage(getString(R.string.carplay_reconnect_limit_reached))
+            appendLog("$reason; automatic retry limit reached ($MAX_RECONNECT_ATTEMPTS)")
+            return
+        }
         reconnectScheduled = true
         val generation = restartGeneration
         val delayMillis = if (reason.contains("AirPlay iAP tunnel", ignoreCase = true)) {
@@ -3747,8 +3753,12 @@ class CarPlayHostActivity : ComponentActivity() {
         const val IAP_TUNNEL_RECONNECT_DELAY_MILLIS = 15_000L
         const val CONTROLLER_CLOSE_TIMEOUT_MILLIS = 4_000L
         const val STARTUP_HOTSPOT_WARNING_MILLIS = 20_000L
-        const val STARTUP_TIMEOUT_MILLIS = 40_000L
+        // A valid slow startup can spend up to 60 s bringing up the MG hotspot, then 15 s in
+        // RFCOMM and another 45 s completing the Wi-Fi/iAP2 handoff.  The previous 40 s UI
+        // watchdog killed those healthy attempts and repeatedly rebuilt the entire stack.
+        const val STARTUP_TIMEOUT_MILLIS = 125_000L
         const val MAX_STARTUP_WATCHDOG_RETRIES = 2
+        const val MAX_RECONNECT_ATTEMPTS = 5
         const val VIDEO_STALL_POLL_MILLIS = 2_000L
         const val VIDEO_STALL_RECOVERY_MILLIS = 8_000L
         const val VIDEO_STALL_RESTART_MILLIS = 5_000L
