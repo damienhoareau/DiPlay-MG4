@@ -2192,6 +2192,11 @@ class CarPlayController(
     }
 
     private fun debugLog(message: String) {
+        // Protocol traces can arrive once per touch/event frame. Writing every one to logcat on
+        // older head units competes with the video and input threads during map gestures, while
+        // exported diagnostics redact these lines anyway. Keep operational diagnostics, but drop
+        // the high-frequency wire trace at this boundary.
+        if (message.startsWith("TRACE ")) return
         Log.i(IphoneCarPlayConfiguration.TAG, message)
         try {
             uiListener?.onDebugLog(message)
