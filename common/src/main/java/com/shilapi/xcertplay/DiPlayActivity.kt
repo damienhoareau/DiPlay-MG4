@@ -587,13 +587,40 @@ class DiPlayActivity : ComponentActivity() {
                         .setTitle(getString(R.string.ota_title))
                         .setMessage(getString(R.string.ota_download_prompt, release.version))
                         .setPositiveButton(getString(R.string.ota_download)) { _, _ ->
-                            OtaUpdater.downloadAndInstall(this, release) { toast(it) }
+                            showOtaProgress(release)
                         }
                         .setNegativeButton(getString(R.string.cancel), null)
                         .show()
                 },
                 onFailure = { toast(getString(R.string.ota_failed, it.javaClass.simpleName)) },
             )
+        }
+    }
+
+    private fun showOtaProgress(release: OtaUpdater.Release) {
+        val statusText = label(getString(R.string.ota_checking), 17, TEXT)
+        val progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            isIndeterminate = true
+            max = 100
+        }
+        val body = column().apply {
+            setPadding(dp(28), dp(20), dp(28), dp(12))
+            addView(statusText)
+            addView(progress, LinearLayout.LayoutParams(-1, dp(16)).apply { topMargin = dp(20) })
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(getString(R.string.ota_title))
+            .setView(body)
+            .setNegativeButton(getString(R.string.cancel), null)
+            .create()
+        dialog.show()
+        OtaUpdater.downloadAndInstall(this, release) { message ->
+            if (!dialog.isShowing) return@downloadAndInstall
+            statusText.text = message
+            Regex("(\\d+)%").find(message)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let {
+                progress.isIndeterminate = false
+                progress.progress = it
+            }
         }
     }
 

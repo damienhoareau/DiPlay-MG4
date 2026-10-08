@@ -60,6 +60,12 @@ internal object OtaUpdater {
             override fun run() {
                 val state = dm.query(DownloadManager.Query().setFilterById(id)).use { cursor ->
                     if (!cursor.moveToFirst()) return@use -1
+                    val downloaded = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
+                    val total = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
+                    if (total > 0 && downloaded >= 0) {
+                        val percent = (downloaded * 100 / total).coerceIn(0, 100)
+                        status("Downloading… $percent% (${downloaded / 1_048_576} / ${total / 1_048_576} MB)")
+                    }
                     cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
                 }
                 when (state) {
@@ -91,16 +97,23 @@ internal object OtaUpdater {
 
     private fun verifyPackage(context: Context, path: String) {
         val pm = context.packageManager
-        val archive = pm.getPackageArchiveInfo(path, PackageManager.GET_SIGNING_CERTIFICATES)
+        val archive = pm.getPackageArchiveInfo(path, PackageManager.GET_SIGNING_CERTIFICATES or PackageManager.GET_SIGNATURES)
             ?: error("Invalid APK")
         check(archive.packageName == context.packageName) { "Package name mismatch" }
-        val installed = pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
-        fun certificates(info: android.content.pm.SigningInfo?) =
-            requireNotNull(info) { "Signing certificate unavailable" }.apkContentsSigners
-                .map { signer -> MessageDigest.getInstance("SHA-256").digest(signer.toByteArray()).contentToString() }
-                .toSet()
-        val expected = certificates(installed.signingInfo)
-        val actual = certificates(archive.signingInfo)
+        val installed = pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES or PackageManager.GET_SIGNATURES)
+        @Suppress("DEPRECATION")
+        fun certificates(info: android.content.pm.PackageInfo): Set<String> {
+            val signers = info.signingInfo?.apkContentsSigners?.toList()
+                ?.takeIf { it.isNotEmpty() }
+                ?: info.signatures?.toList().orEmpty()
+            check(signers.isNotEmpty()) { "Signing certificate unavailable" }
+            return signers.map { signer ->
+                MessageDigest.getInstance("SHA-256").digest(signer.toByteArray())
+                    .joinToString("") { "%02x".format(it) }
+            }.toSet()
+        }
+        val expected = certificates(installed)
+        val actual = certificates(archive)
         check(expected == actual) { "Signing certificate mismatch" }
     }
 
