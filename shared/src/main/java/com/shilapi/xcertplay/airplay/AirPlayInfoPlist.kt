@@ -42,7 +42,7 @@ object AirPlayInfoPlist {
             "rightHandDrive" to config.rightHandDrive,
             "keepAliveLowPower" to false,
             "keepAliveSendStatsAsBody" to false,
-            "modes" to modes(),
+            "modes" to modes(config.disableAudioOutput),
         )
         if (!config.disableAudioOutput) {
             info["audioLatencies"] = audioLatencies()
@@ -86,8 +86,12 @@ object AirPlayInfoPlist {
         "unborrowConstraint" to CONSTRAINT_ANYTIME,
     )
 
-    private fun modes(): Map<String, Any?> = linkedMapOf(
-        "resources" to listOf(resource(RESOURCE_SCREEN), resource(RESOURCE_AUDIO)),
+    private fun modes(disableAudioOutput: Boolean): Map<String, Any?> = linkedMapOf(
+        "resources" to if (disableAudioOutput) {
+            listOf(resource(RESOURCE_SCREEN))
+        } else {
+            listOf(resource(RESOURCE_SCREEN), resource(RESOURCE_AUDIO))
+        },
         "appStates" to listOf(
             linkedMapOf("appStateID" to 2, "state" to false),
             linkedMapOf("appStateID" to 1, "speechMode" to -1),

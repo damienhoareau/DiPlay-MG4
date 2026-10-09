@@ -2802,6 +2802,11 @@ class CarPlayHostActivity : ComponentActivity() {
             oemLabel = oemLabel,
             icons = listOf(loadAirPlayIcon()),
             videoInCar = com.shilapi.xcertplay.hud.BydOutputSettings.videoWhileParked(this),
+            // Screen-only CarPlay: the renderer deliberately drops the "media" stream so the
+            // MG's own A2DP keeps playing. If we still advertised audio output, the iPhone
+            // would hand media over to CarPlay, we would discard it, and the Bluetooth music
+            // would cut out and never resume.
+            disableAudioOutput = true,
         )
     }
 

@@ -57,11 +57,10 @@ internal class AudioFocusCoordinator(
 
     @Synchronized
     fun acquire(track: AudioTrack, channel: AudioChannel, attributes: AudioAttributes) {
-        // MG4 needs audio focus to open the vehicle media output. The wireless controller now
-        // disables the classic Bluetooth radio after handoff, so the factory AVRCP owner cannot
-        // respond to this focus request by pausing the iPhone.
-        val forceOnMg4 = Build.VERSION.SDK_INT == Build.VERSION_CODES.P
-        if ((!enabled && !forceOnMg4) || manager == null || channel == AudioChannel.NAVIGATION) return
+        // Focus is only taken when the user asked for it. The MG4 override that used to force it
+        // on assumed the classic Bluetooth radio was shut down after handoff; in hybrid mode the
+        // radio stays up, so grabbing focus here makes the factory AVRCP owner pause the music.
+        if (!enabled || manager == null || channel == AudioChannel.NAVIGATION) return
         active[track] = Entry(channel, attributes)
         refreshRequest()
     }
@@ -93,19 +92,6 @@ internal class AudioFocusCoordinator(
             .build()
         request = next
         requestedChannel = primary.channel
-        if (Build.VERSION.SDK_INT == Build.VERSION_CODES.P && primary.channel == AudioChannel.MEDIA) {
-            // The factory Bluetooth source can leave STREAM_MUSIC muted or at zero when its
-            // radio is shut down. Open that local Android path before requesting focus.
-            runCatching { manager?.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0) }
-            val current = runCatching { manager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: 0 }.getOrDefault(0)
-            val maximum = runCatching { manager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 0 }.getOrDefault(0)
-            if (current == 0 && maximum > 0) {
-                runCatching { manager?.setStreamVolume(AudioManager.STREAM_MUSIC, maxOf(1, maximum / 3), 0) }
-            }
-            runCatching {
-                report("Audio: MG4 media route forced stream=3 volume=${manager?.getStreamVolume(AudioManager.STREAM_MUSIC)} max=$maximum")
-            }
-        }
         val result = manager?.requestAudioFocus(next)
         val line = "Audio: focus requested channel=${primary.channel} gain=$gain granted=$result activeTracks=${active.size}"
         Log.i(TAG, line)
