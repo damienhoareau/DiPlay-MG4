@@ -1000,8 +1000,20 @@ class CarPlayController(
                 onEvent = { event -> debugLog("wireless bonjour: ${event.diagnosticSummary()}") },
             )
             bonjour = bonjourClient
-            bonjourClient.start()
-            debugLog("wireless Bonjour services started mode=interface iface=${hotspotInfo.interfaceName ?: "unknown"}")
+            // JmDNS probes for name collisions before it announces, which costs ~18s on this
+            // head unit. Nothing below needs the advertisement to exist — the AirPlay listener
+            // is already bound and the iPhone reaches us over RFCOMM — so start it off-thread
+            // and let the bring-up continue.
+            Thread({
+                runCatching { bonjourClient.start() }
+                    .onSuccess {
+                        debugLog(
+                            "wireless Bonjour services started mode=interface " +
+                                "iface=${hotspotInfo.interfaceName ?: "unknown"}",
+                        )
+                    }
+                    .onFailure { error -> debugLog("wireless Bonjour start failed: $error") }
+            }, "carplay-bonjour-start").apply { isDaemon = true }.start()
             if (isStaleWirelessRun(generation)) {
                 closeWirelessStack()
                 return
