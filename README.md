@@ -1,48 +1,69 @@
-# MG4 Wireless CarPlay
+# MG4CPlay
 
-Wireless CarPlay for the MG4 Android head unit, maintained by
+Wireless CarPlay for the MG4 head unit, maintained by
 [@fatihdonmezdev](https://github.com/fatihdonmezdev).
 
-> This private fork targets the MG4 Comfort head unit running SWI69 / Android 9.
-> The MG integration reuses EVHardware's proven read-only SWI69 paths for battery,
-> range and the parked safety gate. Wireless CarPlay uses the car's existing hotspot
-> on Android 9; Wi-Fi Direct remains unavailable below Android 10.
-
-**MG4-focused wireless CarPlay for Android head units.** The primary tested target is the
-MG4 Comfort running SWI69 / Android 9 on the AUTUS SAIC MT2712 head unit. Independent app:
+Tested target: **MG4 Comfort, SWI69 firmware, Android 9, AUTUS SAIC MT2712**.
+Other MG4 firmware may work; SWI69 is the one that is tested. Package:
 `com.shihab.diplay`.
 
-> Other MG4 firmware versions may work, but SWI69 is the tested and supported target.
+[Releases](https://github.com/fatihdonmezdev/DiPlay-MG4/releases) ·
+[Report a problem](https://github.com/fatihdonmezdev/DiPlay-MG4/issues/new)
 
-[Releases](https://github.com/fatihdonmezdev/MG4-Wireless-Carplay/releases) · [Report a problem](https://github.com/fatihdonmezdev/MG4-Wireless-Carplay/issues/new)
+## What it does
 
-## 0.2.8 — public preview
+- Wireless CarPlay over the car's own hotspot, with local authentication — no
+  dongle, no Mac, no account, no authentication server.
+- Connects in about five seconds from launch to first frame.
+- Audio stays on the car's Bluetooth link. CarPlay drives the screen; the MG's own
+  A2DP path plays the sound, which is the one that works reliably on this unit.
+- The car switches to its Bluetooth Music source automatically when CarPlay
+  connects, so a head unit sitting on Radio after start-up still plays.
+- Battery and range reporting to the iPhone, plus the parked safety gate, using
+  EVHardware's read-only SWI69 paths.
+- In-app update checks against this repository's releases.
+- Local diagnostic export. Reports leave the car only if you choose to share them.
+- Installs alongside other projection apps. Run one at a time.
 
-Install on the **car**, not the iPhone. No jailbreak, dongle, Mac, account or authentication server is required for use. Core CarPlay does not require ADB; optional dashboard, battery, wheel-speed and parked-video features do. Your head unit must permit APK installation. Wireless supports Wi-Fi Direct or the car’s existing hotspot; Wi-Fi Direct requires Android 10+; the APK supports Android 9+ for wired use.
+Interface languages: English, Arabic, Russian, Spanish and Simplified Chinese.
+Pick one in Settings; on Android 13+ it follows Android's per-app language
+setting.
 
-- Wired USB and wireless CarPlay with local authentication.
-- BYD HUD navigation with arrows, distance and street names on verified firmware.
-- Car hotspot support, improved audio buffering and saved receive diagnostics.
-- Automatic address discovery, fixed-channel Wi-Fi fallbacks and successful-configuration memory.
-- Icon/text size, resolution and frame rate; applying a display change reconnects CarPlay.
-- Local diagnostic export. Reports are sent only if you choose to share them.
-- Separate installation alongside DiAuto. Run one projection app at a time.
+## Installing
 
-This is **not an Apple-certified product**. The APK bundles an experimental accessory identity recovered from public Carlinkit firmware, not a newly provisioned MFi identity for DiPlay. A bundled private key is extractable. Acceptance after future iOS updates, reliability across head units and suitability of that identity for general distribution are unresolved. This release invites community testing; it is not a guarantee of universal compatibility.
+The APK is platform-signed and installs as a system app, so the usual
+`adb install` is refused by this head unit. Use:
 
-Earlier releases were tested on the development DiLink5.1 car: live windshield guidance and street names work, Car hotspot now starts CarPlay, and Wi-Fi Direct performance is substantially improved. Occasional audio cutouts remain and are deferred to a later update. The new features were tested on a BYD Tang with DiLink 5.0 and an iPhone 15 Pro on iOS 27; wheel-speed dead reckoning in tunnels remains unverified. Broader head-unit and iOS compatibility is not guaranteed. The HUD firmware scope and cleanup limits are documented in [BYD navigation](docs/BYD_NAVIGATION.md).
+```bash
+adb push MG4CPlay-v<version>.apk /data/local/tmp/update.apk
+adb shell "pm install -r -f -d -t /data/local/tmp/update.apk"
+```
 
-## What’s new in 0.2.8
+The `-f` flag is the one that matters — see
+[docs/MG4_PLATFORM_INSTALL.md](docs/MG4_PLATFORM_INSTALL.md) for why, and
+[docs/RELEASING.md](docs/RELEASING.md) for the full build-and-install path.
 
-- App interface in English, Simplified Chinese, Arabic, Russian and Spanish; synchronized Android app-language settings.
-- Steering-wheel media controls and long-press Siri on supported BYD firmware while CarPlay is on screen.
-- Dashboard display choices: map, turn card, or both; corrected dashboard keyframe recovery.
-- Optional ADB feature on supported DiLink 5.0: pause the dashboard map stream when its display mode hides the map.
-- Optional ADB battery reporting for Apple Maps, with warning threshold, charging-connector selection and a checked reconnect action.
-- Wireless location reporting continues across the Bluetooth-to-Wi-Fi handoff; USB and wireless updates are limited to one per second.
-- Optional ADB wheel-speed and gear reporting lets iPhone navigation estimate movement when GPS is unavailable. Tunnel use still needs validation.
-- Optional iOS 27 video playback on the car screen while parked, with iPhone, touchscreen and steering-wheel controls. Playback closes when the car leaves P.
-- DRM-protected video such as Apple TV+ is not supported; DiPlay is not a licensed FairPlay receiver. Netflix does not support AirPlay.
+## Updates
+
+The app checks for updates at startup and from the **↻** button on the home
+screen. It downloads the new version, verifies its SHA-256 and signing
+certificate, then opens Downloads so you can tap the file to install it.
+
+That last tap is manual because the head unit blocks apps from installing
+packages silently — both `pm install` and the session installer are refused by
+the platform, whatever directory the file sits in. Details and troubleshooting:
+[docs/OTA.md](docs/OTA.md).
+
+## Caveats
+
+This is **not an Apple-certified product**. The APK bundles an experimental
+accessory identity recovered from public Carlinkit firmware, not an MFi identity
+provisioned for this app. The bundled private key is extractable. Whether iOS
+keeps accepting it, and whether it is suitable for wider distribution, is
+unresolved.
+
+DRM-protected video such as Apple TV+ is not supported; this is not a licensed
+FairPlay receiver. Netflix does not support AirPlay.
 
 ## Documentation
 
@@ -52,14 +73,16 @@ Earlier releases were tested on the development DiLink5.1 car: live windshield g
 - [Installing over ADB](docs/MG4_PLATFORM_INSTALL.md)
 - [Release notes](CHANGELOG.md)
 
-The website is available in English, Arabic, Russian, Spanish and Simplified Chinese. The app interface supports those same five languages. Choose the app language in Settings; on Android 13+, it stays synchronized with Android’s per-app language setting.
-
 ## Source and credits
 
-Based on [xcertplay](https://github.com/shilapi/xcertplay), GPL-3.0. The home/settings UI and website adapt [DiAuto](https://github.com/shihabal3amri/DiAuto), AGPL-3.0; that license is included in `docs/licenses`. Preserve those notices when distributing modifications. CarPlay and its icon belong to Apple Inc.; no Apple or BYD affiliation or endorsement is implied.
+Based on [xcertplay](https://github.com/shilapi/xcertplay), GPL-3.0. The
+home/settings UI adapts [DiAuto](https://github.com/shihabal3amri/DiAuto),
+AGPL-3.0; that license is included in `docs/licenses`. Preserve those notices
+when distributing modifications. CarPlay and its icon belong to Apple Inc.; no
+affiliation or endorsement is implied.
 
-This repository starts with a clean public source snapshot. Local research, tester reports and release-signing secrets are excluded. The complete source corresponding to the APK is provided with every release; experimental runtime identity assets are described separately in the build instructions and notices.
-
-## Local release packaging
-
-The release APK intentionally contains the experimental accessory identity. The Git repository and source archive exclude all accessory and Android signing keys; tests generate synthetic identities at runtime. Source/CI builds omit runtime identity assets by default. Local release builds explicitly select an external asset directory. Publishing the APK makes its bundled identity extractable; building locally does not preserve that identity's confidentiality.
+Accessory and signing keys are excluded from source archives; tests generate
+synthetic identities at runtime. Source and CI builds omit runtime identity
+assets by default — a car build selects them explicitly through
+`DIPLAY_AUTH_ASSETS_DIR`. Publishing an APK makes its bundled identity
+extractable.

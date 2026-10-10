@@ -150,9 +150,9 @@ gh api repos/fatihdonmezdev/DiPlay-MG4/releases/tags/"v$VERSION" --jq '.assets[0
 shasum -a 256 "/tmp/MG4CPlay-v$VERSION.apk"
 ```
 
-Release notes are user-facing: write what changed from the driver's point of view,
-in Turkish, and say plainly when something still needs a manual step. Keep a short
-"previous versions" list so one release page is enough context.
+Release notes are user-facing and written in English: say what changed from the
+driver's point of view, and say plainly when something still needs a manual step.
+Keep a short "carried over" list so one release page is enough context.
 
 ## Commit messages
 
