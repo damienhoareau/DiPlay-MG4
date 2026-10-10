@@ -107,7 +107,51 @@ internal object OtaUpdater {
                 verifyPackage(context, apk.absolutePath)
                 install(context, stageForPackageManager(apk))
             }
-            main.post { status(result.fold({ "Update verified; installation started" }, { "Update rejected: ${it.message}" })) }
+            main.post {
+                status(
+                    result.fold(
+                        { "Update verified; installation started" },
+                        { error ->
+                            Log.w(TAG, "automatic install unavailable: ${error.message}")
+                            offerManualInstall(context, apk)
+                        },
+                    ),
+                )
+            }
+        }
+    }
+
+    /**
+     * Sends the driver to the Downloads app to finish the install by hand.
+     *
+     * This head unit blocks both automatic routes: `pm install` runs in system_server, which
+     * SELinux denies every directory we can write to, and the OEM package manager rejects
+     * session installs with "not allowed to install non-system apps on internal storage".
+     * The package is verified and sitting in Downloads either way, so tapping it there still
+     * installs — the same fallback DiAuto-MG4 settled on.
+     *
+     * @return the status line to show.
+     */
+    private fun offerManualInstall(context: Context, apk: java.io.File): String {
+        val opened = runCatching {
+            val intent = Intent(DownloadManager.ACTION_VIEW_DOWNLOADS)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            check(intent.resolveActivity(context.packageManager) != null) { "Downloads app not available" }
+            context.startActivity(intent)
+            true
+        }.getOrElse { error ->
+            Log.w(TAG, "could not open Downloads: ${error.message}")
+            false
+        }
+        Toast.makeText(
+            context,
+            "Automatic install blocked. Tap ${apk.name} in Downloads to install.",
+            Toast.LENGTH_LONG,
+        ).show()
+        return if (opened) {
+            "Tap ${apk.name} in Downloads to finish the install."
+        } else {
+            "Downloaded to Downloads/${apk.name} — open it from the file manager to install."
         }
     }
 
