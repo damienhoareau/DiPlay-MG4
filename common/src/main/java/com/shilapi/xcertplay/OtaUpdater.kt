@@ -23,7 +23,7 @@ import java.util.concurrent.Executors
 
 internal object OtaUpdater {
     private const val TAG = "DiPlay_OTA"
-    private const val RELEASES = "https://api.github.com/repos/fatihdonmezdev/MG4-Wireless-Carplay/releases?per_page=20"
+    private const val RELEASES = "https://api.github.com/repos/fatihdonmezdev/DiPlay-MG4/releases?per_page=20"
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
 
@@ -46,19 +46,34 @@ internal object OtaUpdater {
     fun downloadAndInstall(context: Context, release: Release, status: (String) -> Unit) {
         val dm = context.getSystemService(DownloadManager::class.java)
             ?: return status("DownloadManager unavailable")
+        // Public Downloads, not the app's own directory: `pm install` runs inside
+        // system_server, which SELinux forbids from reading app_data_file. Downloads is the
+        // one place both we and the package manager can open. (Same path DiAuto-MG4 uses.)
+        val fileName = release.fileName.replace(Regex("[^A-Za-z0-9._-]"), "_")
+        val target = prepareDownloadTarget(fileName)
         val request = DownloadManager.Request(Uri.parse(release.url))
             .setTitle("MG4CPlay ${release.version}")
             .setDescription("Downloading update")
             .setAllowedOverMetered(true)
             .setAllowedOverRoaming(true)
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, release.fileName)
+            .setDestinationUri(Uri.fromFile(target))
         val id = runCatching { dm.enqueue(request) }.getOrElse { return status("Download failed: ${it.javaClass.simpleName}") }
         status("Downloading ${release.version}…")
-        poll(context, dm, id, release, status)
+        poll(context, dm, id, release, target, status)
     }
 
-    private fun poll(context: Context, dm: DownloadManager, id: Long, release: Release, status: (String) -> Unit) {
+    /** Clears any previous copy so DownloadManager does not fall back to "file-1.apk". */
+    private fun prepareDownloadTarget(fileName: String): java.io.File {
+        val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            ?: error("Public Downloads directory unavailable")
+        if (!downloads.exists() && !downloads.mkdirs()) error("Could not create Downloads directory")
+        val target = java.io.File(downloads, fileName)
+        if (target.exists() && !target.delete()) error("Could not replace existing OTA package")
+        return target
+    }
+
+    private fun poll(context: Context, dm: DownloadManager, id: Long, release: Release, apk: java.io.File, status: (String) -> Unit) {
         main.postDelayed(object : Runnable {
             override fun run() {
                 val state = dm.query(DownloadManager.Query().setFilterById(id)).use { cursor ->
@@ -72,7 +87,7 @@ internal object OtaUpdater {
                     cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
                 }
                 when (state) {
-                    DownloadManager.STATUS_SUCCESSFUL -> verifyAndInstall(context, dm, id, release, status)
+                    DownloadManager.STATUS_SUCCESSFUL -> verifyAndInstall(context, release, apk, status)
                     DownloadManager.STATUS_FAILED -> status("Download failed")
                     else -> main.postDelayed(this, 500)
                 }
@@ -80,19 +95,17 @@ internal object OtaUpdater {
         }, 500)
     }
 
-    private fun verifyAndInstall(context: Context, dm: DownloadManager, id: Long, release: Release, status: (String) -> Unit) {
+    private fun verifyAndInstall(context: Context, release: Release, apk: java.io.File, status: (String) -> Unit) {
         status("Verifying update…")
         worker.execute {
             val result = runCatching {
-                val digest = dm.openDownloadedFile(id).use { pfd ->
-                    pfd.fileDescriptor.let { fd -> java.io.FileInputStream(fd).use(::sha256) }
-                }
+                check(apk.isFile) { "Downloaded APK missing" }
+                val digest = apk.inputStream().use(::sha256)
                 check(digest.equals(release.sha256, ignoreCase = true)) { "SHA-256 mismatch" }
-                val uri = dm.getUriForDownloadedFile(id) ?: error("Downloaded APK unavailable")
-                val staged = java.io.File(context.cacheDir, "mg4cplay-update.apk")
-                context.contentResolver.openInputStream(uri)!!.use { input -> staged.outputStream().use(input::copyTo) }
-                verifyPackage(context, staged.absolutePath)
-                install(context, staged)
+                verifyPackage(context, apk.absolutePath)
+                // Installed straight out of Downloads — copying it into our cache first is
+                // what made `pm install` fail, since system_server cannot read that path.
+                install(context, apk)
             }
             main.post { status(result.fold({ "Update verified; installation started" }, { "Update rejected: ${it.message}" })) }
         }
