@@ -23,6 +23,8 @@ import java.util.concurrent.Executors
 
 internal object OtaUpdater {
     private const val TAG = "DiPlay_OTA"
+    private const val SHELL_TMP_DIR = "/data/local/tmp"
+    private const val STAGED_APK_NAME = "mg4cplay-update.apk"
     private const val RELEASES = "https://api.github.com/repos/fatihdonmezdev/DiPlay-MG4/releases?per_page=20"
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
@@ -103,11 +105,35 @@ internal object OtaUpdater {
                 val digest = apk.inputStream().use(::sha256)
                 check(digest.equals(release.sha256, ignoreCase = true)) { "SHA-256 mismatch" }
                 verifyPackage(context, apk.absolutePath)
-                // Installed straight out of Downloads — copying it into our cache first is
-                // what made `pm install` fail, since system_server cannot read that path.
-                install(context, apk)
+                install(context, stageForPackageManager(apk))
             }
             main.post { status(result.fold({ "Update verified; installation started" }, { "Update rejected: ${it.message}" })) }
+        }
+    }
+
+    /**
+     * Copies the verified package to /data/local/tmp, the path `pm install` suggests by name
+     * when it refuses anything else.
+     *
+     * `pm install` hands the path to system_server, and SELinux lets that domain read neither
+     * our cache (app_data_file) nor Downloads (sdcardfs). shell_data_file it can read, which
+     * is why the manual `adb push /data/local/tmp` route has always worked. The directory is
+     * shell-owned and mode 771, so a fresh file may be refused; reusing the existing
+     * world-writable name keeps that case working.
+     */
+    private fun stageForPackageManager(apk: java.io.File): java.io.File {
+        val staged = java.io.File(SHELL_TMP_DIR, STAGED_APK_NAME)
+        return runCatching {
+            apk.inputStream().use { input -> staged.outputStream().use(input::copyTo) }
+            check(staged.length() == apk.length()) { "staged copy is truncated" }
+            runCatching { staged.setReadable(true, false) }
+            Log.i(TAG, "staged ${staged.length()} bytes at ${staged.absolutePath}")
+            staged
+        }.getOrElse { error ->
+            // Fall back to the original path: the session installer streams the bytes
+            // itself and does not need the package manager to open this file.
+            Log.w(TAG, "could not stage into $SHELL_TMP_DIR: ${error.message}")
+            apk
         }
     }
 
