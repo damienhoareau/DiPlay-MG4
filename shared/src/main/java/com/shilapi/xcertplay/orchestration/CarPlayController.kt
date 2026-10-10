@@ -19,6 +19,9 @@ import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
 import android.util.Log
+import android.widget.Toast
+import com.evsuite.hardware.saic.SaicMediaPlayer
+import com.shilapi.xcertplay.shared.R
 import com.shilapi.xcertplay.airplay.AirPlayConfig
 import com.shilapi.xcertplay.airplay.AirPlayContact
 import com.shilapi.xcertplay.airplay.AirPlayDeviceInfo
@@ -1261,11 +1264,66 @@ class CarPlayController(
                 // factory A2DP/AVRCP profiles must stay connected so the iPhone can send
                 // music through the car's stable Bluetooth audio path.
                 onStatus(CarPlayStatus.WirelessActive)
+                switchCarSourceToBluetooth()
             },
             "xcertplay-wireless-handoff",
         ).apply {
             isDaemon = true
             start()
+        }
+    }
+
+    /**
+     * Puts the car on its Bluetooth Music source, the way the SAIC launcher's music card does.
+     *
+     * In hybrid mode the phone's audio arrives over the factory A2DP link, so a car still
+     * sitting on Radio after start-up plays nothing until the driver switches the source by
+     * hand. Mirroring the launcher's `requestBtAudioFocus` removes that step.
+     *
+     * The car refuses the switch while no device holds A2DP, so this waits for the profile
+     * and tells the driver where to fix it if the phone never connects. Both the bind and
+     * the handover land asynchronously, hence the retries.
+     */
+    private fun switchCarSourceToBluetooth() {
+        val adapter = bluetoothAdapter
+        if (adapter == null || !adapter.isEnabled) {
+            debugLog("car source: Bluetooth adapter unavailable; leaving source alone")
+            return
+        }
+        if (!hasBluetoothAudioDevice(adapter)) {
+            debugLog("car source: no A2DP device connected; prompting the driver")
+            promptConnectBluetoothForAudio()
+            return
+        }
+        SaicMediaPlayer.connectBluetooth(appContext)
+        repeat(SOURCE_SWITCH_ATTEMPTS) { attempt ->
+            if (closed || phase != Phase.WIRELESS) return
+            if (SaicMediaPlayer.switchToBluetooth()) {
+                debugLog("car source: switched to BT Music (attempt ${attempt + 1})")
+                return
+            }
+            Thread.sleep(SOURCE_SWITCH_RETRY_MILLIS)
+        }
+        debugLog("car source: BT Music service never answered; source left unchanged")
+    }
+
+    private fun hasBluetoothAudioDevice(adapter: BluetoothAdapter): Boolean =
+        connectedBluetoothDevices(adapter, BluetoothProfile.A2DP, BluetoothA2dp::class.java)
+            .isNotEmpty()
+
+    private fun promptConnectBluetoothForAudio() {
+        mainHandler.post {
+            runCatching {
+                Toast.makeText(
+                    appContext,
+                    appContext.getString(R.string.connect_bluetooth_for_audio),
+                    Toast.LENGTH_LONG,
+                ).show()
+                appContext.startActivity(
+                    Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }.onFailure { error -> debugLog("car source: Bluetooth settings unavailable: $error") }
         }
     }
 
@@ -2308,6 +2366,10 @@ class CarPlayController(
         private const val WIRELESS_HANDOFF_TIMEOUT_MILLIS = 45_000L
         private const val RFCOMM_CONNECT_TIMEOUT_MILLIS = 15_000L
         private const val BLUETOOTH_PROFILE_AVRCP_CONTROLLER = 12
+
+        /** The BT music service binds asynchronously; give it a few seconds to answer. */
+        private const val SOURCE_SWITCH_ATTEMPTS = 12
+        private const val SOURCE_SWITCH_RETRY_MILLIS = 250L
         private const val MAXIMUM_REENUMERATION_ATTEMPTS = 2
         private const val EXECUTOR_CLOSE_TIMEOUT_MILLIS = 2_000L
         private const val ADAPTER_ADDRESS_PLACEHOLDER = "02:00:00:00:00:00"
