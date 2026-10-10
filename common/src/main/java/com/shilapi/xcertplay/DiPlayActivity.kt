@@ -113,6 +113,7 @@ class DiPlayActivity : ComponentActivity() {
         render()
         CrashRecorder.consume(this)?.let { showCrashReport(it) }
         handleWirelessRecovery()
+        checkForOtaOnStartup()
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (page != "home") { page = "home"; render() }
@@ -574,6 +575,23 @@ class DiPlayActivity : ComponentActivity() {
         }
         section(content, getString(R.string.made_possible_by_open_source)) { card ->
             card.addView(label(getString(R.string.receiver_based_on_xcertplay_licensed_under_gpl_3_0_diplay), 16, MUTED))
+        }
+    }
+
+    /**
+     * Startup check. Silent unless an update is waiting: a toast on every launch saying the
+     * app is current would be noise, and a failed check usually just means no network yet.
+     */
+    private fun checkForOtaOnStartup() {
+        OtaUpdater.check(this) { result ->
+            if (isFinishing || isDestroyed) return@check
+            val release = result.getOrNull() ?: return@check
+            AlertDialog.Builder(this)
+                .setTitle(getString(R.string.ota_title))
+                .setMessage(getString(R.string.ota_download_prompt, release.version))
+                .setPositiveButton(getString(R.string.ota_download)) { _, _ -> showOtaProgress(release) }
+                .setNegativeButton(getString(R.string.cancel), null)
+                .show()
         }
     }
 
