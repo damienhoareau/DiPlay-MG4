@@ -231,6 +231,7 @@ class CarPlayController(
     private val wirelessHandoffRequested = AtomicBoolean(false)
     private val wirelessTunnelReady = AtomicBoolean(false)
     private val wirelessActiveReported = AtomicBoolean(false)
+    private val sourceWatchdogRunning = AtomicBoolean(false)
     private val bluetoothDisabledForWirelessCarPlay = AtomicBoolean(false)
     private val wirelessGeneration = AtomicInteger(0)
     private val wirelessConnectionProof = WirelessConnectionProof<AirPlaySession>()
@@ -1290,26 +1291,100 @@ class CarPlayController(
             debugLog("car source: Bluetooth adapter unavailable; leaving source alone")
             return
         }
-        if (!hasBluetoothAudioDevice(adapter)) {
-            debugLog("car source: no A2DP device connected; prompting the driver")
+        // A2DP is still coming up while the CarPlay session is handed off, so a single check
+        // here reports "not connected" on a phone that connects fine a second later.
+        if (!awaitBluetoothAudioDevice(adapter)) {
+            debugLog("car source: no Bluetooth audio device after waiting; prompting the driver")
             promptConnectBluetoothForAudio()
             return
         }
         SaicMediaPlayer.connectBluetooth(appContext)
+        if (!claimBluetoothSource()) {
+            debugLog("car source: still not on BT Music after $SOURCE_SWITCH_ATTEMPTS attempts")
+        }
+        startCarSourceWatchdog()
+    }
+
+    /**
+     * Asks for the Bluetooth source until the car reports it, and says whether it got there.
+     *
+     * Firmware generations differ in who owns the decision. SWI68/SWI165 expose the SAIC
+     * media service and answer `requestBtAudioFocus`; on the A9 units (SWI69 and friends)
+     * that service does not exist, and what works there is pressing play on the Bluetooth
+     * player's own media session — it then claims the source itself.
+     */
+    private fun claimBluetoothSource(): Boolean {
+        var sessionPlaySent = false
         repeat(SOURCE_SWITCH_ATTEMPTS) { attempt ->
-            if (closed || phase != Phase.WIRELESS) return
-            if (SaicMediaPlayer.switchToBluetooth()) {
-                debugLog("car source: switched to BT Music (attempt ${attempt + 1})")
-                return
+            if (closed || phase != Phase.WIRELESS) return false
+            if (SaicMediaPlayer.isBluetoothSource) {
+                debugLog("car source: on BT Music (attempt ${attempt + 1})")
+                return true
+            }
+            if (!SaicMediaPlayer.switchToBluetooth() &&
+                !SaicMediaPlayer.requestLauncherBluetoothSource() &&
+                !sessionPlaySent
+            ) {
+                sessionPlaySent = SaicMediaPlayer.playStockMediaSession()
             }
             Thread.sleep(SOURCE_SWITCH_RETRY_MILLIS)
         }
-        debugLog("car source: BT Music service never answered; source left unchanged")
+        return false
     }
 
+    /**
+     * Puts the car back on Bluetooth if something else takes the source while CarPlay is up.
+     *
+     * Reaching for Radio from the launcher is easy to do by accident, and in hybrid mode it
+     * silences CarPlay's audio completely — the phone keeps streaming over A2DP into a
+     * source the car is no longer listening to. Nothing is done while the car is already on
+     * Bluetooth, so a driver who deliberately picks another source still has to be fought
+     * off only once per poll.
+     */
+    private fun startCarSourceWatchdog() {
+        if (!sourceWatchdogRunning.compareAndSet(false, true)) return
+        val generation = wirelessGeneration.get()
+        Thread({
+            try {
+                while (!closed && phase == Phase.WIRELESS && generation == wirelessGeneration.get()) {
+                    Thread.sleep(SOURCE_WATCHDOG_INTERVAL_MILLIS)
+                    if (closed || phase != Phase.WIRELESS || generation != wirelessGeneration.get()) break
+                    if (SaicMediaPlayer.isBluetoothSource) continue
+                    val adapter = bluetoothAdapter ?: break
+                    if (!adapter.isEnabled || !hasBluetoothAudioDevice(adapter)) continue
+                    debugLog("car source: something took the source; claiming it back")
+                    claimBluetoothSource()
+                }
+            } catch (_: InterruptedException) {
+                // Session ended while sleeping.
+            } finally {
+                sourceWatchdogRunning.set(false)
+            }
+        }, "xcertplay-car-source").apply { isDaemon = true }.start()
+    }
+
+    private fun awaitBluetoothAudioDevice(adapter: BluetoothAdapter): Boolean {
+        repeat(A2DP_WAIT_ATTEMPTS) { attempt ->
+            if (closed || phase != Phase.WIRELESS) return false
+            if (hasBluetoothAudioDevice(adapter)) {
+                if (attempt > 0) debugLog("car source: Bluetooth audio up after ${attempt + 1} checks")
+                return true
+            }
+            Thread.sleep(A2DP_WAIT_INTERVAL_MILLIS)
+        }
+        return false
+    }
+
+    /**
+     * The head unit receives audio, so the phone shows up under A2DP *sink*, not the source
+     * profile a phone-shaped device would use. Both are checked: sink is what this unit
+     * reports, and source keeps the check honest on anything that pairs the other way round.
+     */
     private fun hasBluetoothAudioDevice(adapter: BluetoothAdapter): Boolean =
-        connectedBluetoothDevices(adapter, BluetoothProfile.A2DP, BluetoothA2dp::class.java)
-            .isNotEmpty()
+        connectedBluetoothDevices(adapter, BLUETOOTH_PROFILE_A2DP_SINK, BluetoothProfile::class.java)
+            .isNotEmpty() ||
+            connectedBluetoothDevices(adapter, BluetoothProfile.A2DP, BluetoothA2dp::class.java)
+                .isNotEmpty()
 
     private fun promptConnectBluetoothForAudio() {
         mainHandler.post {
@@ -2370,6 +2445,16 @@ class CarPlayController(
         /** The BT music service binds asynchronously; give it a few seconds to answer. */
         private const val SOURCE_SWITCH_ATTEMPTS = 12
         private const val SOURCE_SWITCH_RETRY_MILLIS = 250L
+
+        /** A2DP reconnects a little after the CarPlay handoff; wait up to ~10s for it. */
+        private const val A2DP_WAIT_ATTEMPTS = 20
+        private const val A2DP_WAIT_INTERVAL_MILLIS = 500L
+
+        /** How often to check that nothing stole the car's source back. */
+        private const val SOURCE_WATCHDOG_INTERVAL_MILLIS = 3_000L
+
+        /** BluetoothProfile.A2DP_SINK — the role this head unit plays; not in the public SDK. */
+        private const val BLUETOOTH_PROFILE_A2DP_SINK = 11
         private const val MAXIMUM_REENUMERATION_ATTEMPTS = 2
         private const val EXECUTOR_CLOSE_TIMEOUT_MILLIS = 2_000L
         private const val ADAPTER_ADDRESS_PLACEHOLDER = "02:00:00:00:00:00"
