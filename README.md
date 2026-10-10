@@ -46,13 +46,11 @@ Earlier releases were tested on the development DiLink5.1 car: live windshield g
 
 ## Documentation
 
-- [Install and connect](docs/INSTALL.md)
-- [Compatibility and troubleshooting](docs/COMPATIBILITY.md)
-- [Privacy and diagnostic reports](docs/PRIVACY.md)
-- [Build from source](docs/BUILD.md)
-- [Validation](docs/VALIDATION.md)
+- [Building, installing and releasing](docs/RELEASING.md) — start here
+- [OTA updates](docs/OTA.md)
+- [Platform-signed builds](docs/MG4_PLATFORM_BUILD.md)
+- [Installing over ADB](docs/MG4_PLATFORM_INSTALL.md)
 - [Release notes](CHANGELOG.md)
-- [Credits and licenses](docs/THIRD_PARTY_NOTICES.md)
 
 The website is available in English, Arabic, Russian, Spanish and Simplified Chinese. The app interface supports those same five languages. Choose the app language in Settings; on Android 13+, it stays synchronized with Android’s per-app language setting.
 
