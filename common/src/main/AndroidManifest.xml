@@ -10,8 +10,6 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Optional, owner-enabled Usage Access for the verified DiLink 5.1 cluster profile. -->
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
-    <!-- Reads the stock media app's session to put the car on its Bluetooth source. -->
-    <uses-permission android:name="android.permission.MEDIA_CONTENT_CONTROL" tools:ignore="ProtectedPermissions" />
     <!-- OTA packages land in public Downloads: the one directory system_server is allowed
          to read when `pm install` opens them. -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
