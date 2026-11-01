@@ -88,6 +88,8 @@ object SaicMediaPlayer {
     private const val TX_BT_PLAY_STATE = 0x9
     private const val TX_BT_PAUSE = 1
     private const val TX_BT_PLAY = 2
+    /** `IBtMusicBinderInterface.requestBtAudioFocus` — the launcher's source switch. */
+    private const val TX_BT_REQUEST_AUDIO_FOCUS = 0xf
     private const val TX_BT_PREVIOUS = 4
     private const val TX_BT_NEXT = 5
 
@@ -160,7 +162,37 @@ object SaicMediaPlayer {
             .forEach { it.connect(context) }
     }
 
+    /**
+     * Binds only the Bluetooth music interface — enough for [switchToBluetooth] without
+     * pulling every other player up.
+     */
+    fun connectBluetooth(context: Context) {
+        appContext = context.applicationContext
+        bluetooth.connect(context)
+    }
+
     val isAvailable: Boolean get() = status.isReady
+
+    /**
+     * Makes the car's media source Bluetooth Music, the same way the SAIC launcher does when
+     * the home-screen music card picks BT.
+     *
+     * [TX_BT_REQUEST_AUDIO_FOCUS] is the source handoff inside `MediaService`; [TX_BT_PLAY]
+     * only resumes the A2DP/AVRCP transport, so calling play alone is not a reliable switch.
+     *
+     * @return true when the focus call reached the service.
+     */
+    fun switchToBluetooth(): Boolean {
+        val binder = bluetooth.binder()
+        if (binder == null) {
+            AppLogger.i(TAG, "switchToBluetooth: BT music service not bound")
+            return false
+        }
+        val focusOk = SaicAidl.callVoid(binder, DESC_BT, TX_BT_REQUEST_AUDIO_FOCUS)
+        val playOk = SaicAidl.callBoolean(binder, DESC_BT, TX_BT_PLAY) ?: false
+        AppLogger.i(TAG, "switchToBluetooth: requestBtAudioFocus=$focusOk play=$playOk")
+        return focusOk
+    }
 
     fun next(): Boolean = command(Command.NEXT)
 
