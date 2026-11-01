@@ -7,7 +7,7 @@ published release. Written for the MG4 Comfort / SWI69 / Android 9 target.
 
 | Path | What it is |
 | --- | --- |
-| `mobile/` | The app that ships. `applicationId com.shihab.diplay`; the debug build adds `.hudtest` and `-hud-test`, so car-test builds install as `com.shihab.diplay.hudtest`. |
+| `mobile/` | The app that ships. `applicationId com.allgo.carplay.service`; the debug build adds `.hudtest` and `-hud-test`, so car-test builds install as `com.allgo.carplay.service.hudtest`. |
 | `common/` | Activities and UI — `DiPlayActivity`, `CarPlayHostActivity`, `OtaUpdater`. |
 | `shared/` | The CarPlay stack: AirPlay, iAP2, media, orchestration, networking. |
 | `automotive/` | Android Automotive variant. Not the MG4 target. |
@@ -94,7 +94,7 @@ A mismatched certificate means the OTA signature check will reject the update an
 ```bash
 adb push "/tmp/MG4CPlay-v$VERSION.apk" /data/local/tmp/update.apk
 adb shell "pm install -r -f -d -t /data/local/tmp/update.apk"
-adb shell "dumpsys package com.shihab.diplay.hudtest | grep versionName"
+adb shell "dumpsys package com.allgo.carplay.service.hudtest | grep versionName"
 ```
 
 - `-r` replace, `-f` force internal flash, `-d` allow downgrade, `-t` allow test packages.
@@ -107,7 +107,7 @@ Background and the full list of flag combinations that do *not* work:
 Launch it:
 
 ```bash
-adb shell "am start -n com.shihab.diplay.hudtest/com.shilapi.xcertplay.DiPlayActivity"
+adb shell "am start -n com.allgo.carplay.service.hudtest/com.shilapi.xcertplay.DiPlayActivity"
 ```
 
 ## Version numbering
@@ -214,7 +214,7 @@ git push mg4 main
 
 ```bash
 adb devices -l                                              # expect: model:SAIC
-adb shell "dumpsys package com.shihab.diplay.hudtest | grep -E 'versionName|userId='"
+adb shell "dumpsys package com.allgo.carplay.service.hudtest | grep -E 'versionName|userId='"
 adb shell "dumpsys window | grep mCurrentFocus"             # what is on screen
 adb logcat -c && adb logcat -v time | grep -E "DiPlay|xcertplay-usb"
 adb shell "rm -f /storage/emulated/0/Download/MG4CPlay*.apk"   # clear stale OTA files

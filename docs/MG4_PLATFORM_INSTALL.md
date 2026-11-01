@@ -54,15 +54,15 @@ later install says `No such file or directory`, re-push.
 ## Verifying the Install
 
 ```bash
-adb shell pm path com.shihab.diplay.hudtest
-# -> package:/data/app/com.shihab.diplay.hudtest-.../base.apk
+adb shell pm path com.allgo.carplay.service.hudtest
+# -> package:/data/app/com.allgo.carplay.service.hudtest-.../base.apk
 ```
 
 To confirm the platform signature matches the system:
 
 ```bash
 BUILD_TOOLS="$ANDROID_HOME/build-tools/36.0.0"
-adb pull "$(adb shell pm path com.shihab.diplay.hudtest | sed 's/package://')" /tmp/installed.apk
+adb pull "$(adb shell pm path com.allgo.carplay.service.hudtest | sed 's/package://')" /tmp/installed.apk
 "$BUILD_TOOLS/apksigner" verify --print-certs /tmp/installed.apk
 # SHA-256 cert digest should match tools/platform.x509.pem
 ```
@@ -70,7 +70,7 @@ adb pull "$(adb shell pm path com.shihab.diplay.hudtest | sed 's/package://')" /
 ## Uninstalling
 
 ```bash
-adb uninstall com.shihab.diplay.hudtest
+adb uninstall com.allgo.carplay.service.hudtest
 ```
 
 Add `-k` to keep data/cache around (useful when re-installing without wiping

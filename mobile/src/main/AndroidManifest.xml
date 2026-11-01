@@ -3,6 +3,12 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:sharedUserId="android.uid.system">
 
+    <!-- Declared by the stock CarPlay app (SWI133, versionCode 104); other system apps may still request it. -->
+    <permission
+        android:name="com.allgo.carplaysurfacebinderservice.permissions.CALL_CARPLAYSET"
+        android:permissionGroup="android.permission-group.HARDWARE_CONTROLS"
+        android:protectionLevel="dangerous" />
+
     <!-- MG4 platform-signed build: lets MG4CPlay claim the iPhone before the stock AllGo host. -->
     <uses-permission android:name="android.permission.MANAGE_USB" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.TETHER_PRIVILEGED" tools:ignore="ProtectedPermissions" />
@@ -28,6 +34,17 @@
         <service
             android:name="com.shilapi.xcertplay.Mg4LauncherOverlayService"
             android:exported="false" />
+
+        <!-- Identity of the stock CarPlay app this package replaces: the launcher's CarPlay tile
+             starts this component by name (com.allgo.carplay.service/.CarPlayActivity); same MAIN filter as stock. -->
+        <activity-alias
+            android:name="com.allgo.carplay.service.CarPlayActivity"
+            android:exported="true"
+            android:targetActivity="com.shilapi.xcertplay.DiPlayActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+            </intent-filter>
+        </activity-alias>
 
         <service android:name="com.shilapi.xcertplay.shared.MyCarAppService" tools:node="remove" />
         <meta-data android:name="androidx.car.app.minCarApiLevel" tools:node="remove" />

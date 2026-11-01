@@ -14,10 +14,13 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.shihab.diplay"
+        // Replaces (by update) the stock MG4 CarPlay app: same package, same platform signature,
+        // same sharedUserId. Uninstalling the update restores the original.
+        applicationId = "com.allgo.carplay.service"
         minSdk = 28
         targetSdk = 37
-        versionCode = 88
+        // Must stay above the stock CarPlay app (versionCode 104 on SWI133) to be installable as its update.
+        versionCode = 105
         versionName = "0.2.9-mg4.61"
 
     }

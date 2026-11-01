@@ -5,7 +5,7 @@ Wireless CarPlay for the MG4 head unit, maintained by
 
 Tested target: **MG4 Comfort, SWI69 firmware, Android 9, AUTUS SAIC MT2712**.
 Other MG4 firmware may work; SWI69 is the one that is tested. Package:
-`com.shihab.diplay`.
+`com.allgo.carplay.service`.
 
 [Releases](https://github.com/fatihdonmezdev/DiPlay-MG4/releases) ·
 [Report a problem](https://github.com/fatihdonmezdev/DiPlay-MG4/issues/new)
